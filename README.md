@@ -1,11 +1,34 @@
 # ADHD board
 
-Tablica zadań pod ADHD: jedna rzecz naraz, kolumny Backlog / Do zrobienia / W toku / Gotowe.
+Tablica zadań pod ADHD: jedno zadanie naraz, epiki w swimlane'ach, kroki i minutnik skupienia.
 
 ## Co tu jest
 
-- `web/index.html` — obecna wersja tablicy (kopia artefaktu „ADHD board” z claude.ai, wersja `1794314958-16d7`, 12.11.2026; adres e-mail zastąpiony ogólnym „konto Google”). Jeden plik, otwierasz go w przeglądarce.
+W głównym katalogu leży gotowa aplikacja webowa (PWA), z której PWABuilder robi paczkę `.apk`:
 
-## Plan
+- `index.html` — cała tablica w jednym pliku
+- `manifest.json` — nazwa, ikony, kolory, tryb pełnoekranowy
+- `sw.js` — service worker: aplikacja otwiera się bez zasięgu
+- `icon.svg`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png` — ikony
 
-- Aplikacja na Androida (APK), która otwiera tę tablicę. Szkielet Gradle przyjdzie w osobnym PR.
+`web/index.html` to starsza kopia tablicy z 12.11.2026, zostawiona dla historii.
+
+## Uruchomienie
+
+Otwórz `index.html` w przeglądarce albo wystaw katalog przez GitHub Pages
+(Settings → Pages → Deploy from a branch → `main` / `/ (root)`).
+
+## Gdzie są dane
+
+Ta wersja trzyma zadania w `localStorage` przeglądarki (klucz `adhd-board.db.v1`),
+czyli na tym urządzeniu i tylko tam. To **osobna baza** niż tablica w claude.ai —
+nic się między nimi nie synchronizuje.
+
+Funkcje, które są usługami claude.ai, poza nim się nie włączają i tablica je ukrywa:
+dyktowanie, „Rozbij z AI”, załączniki, Poczta oraz Zakupy (łącznik Arkuszy Google).
+
+## Paczka APK
+
+1. Włącz GitHub Pages jak wyżej.
+2. Wklej adres `https://teddybadboy.github.io/adhd-board/` na `pwabuilder.com`.
+3. Manifest i Service Worker powinny być na zielono → **Package for stores → Android**.
