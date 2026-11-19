@@ -198,7 +198,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.wrap { max-width: 1400px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: none; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 
 /* Top navigation */
 .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -696,6 +696,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
 <header class="top">
   <div class="wrap">
     <div class="brand"><div class="mark" aria-hidden="true">1</div><div><div class="brand-name">ADHD board</div><span class="brand-sub">jedno zadanie naraz</span></div></div>
+    <button class="btn" id="btn-layout" type="button" hidden></button>
     <nav class="tabs" role="tablist" aria-label="Widoki">
       <button role="tab" id="tab-backlog" data-action="view" data-view="backlog" aria-selected="false">Backlog <span class="n" id="n-backlog"></span></button>
       <button role="tab" id="tab-board" data-action="view" data-view="board" aria-selected="true">Tablica</button>
@@ -711,6 +712,45 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     <button class="btn primary" id="btn-new" data-action="new"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Utwórz</button>
   </div>
 </header>
+
+<script>
+/* Widok telefonu: gdy Chrome na telefonie poda stronie szerokość komputera (np. „Wersja na komputer”),
+   tablica sama włącza układ mobilny i powiększa się do szerokości ekranu. Przycisk pozwala to wymusić albo wyłączyć. */
+(function () {
+  const KEY = 'teraz.layout'; // auto | phone | wide
+  const root = document.documentElement, btn = document.getElementById('btn-layout');
+  let mode = 'auto';
+  try { mode = localStorage.getItem(KEY) || 'auto'; } catch (_) {}
+  const mobile = [];
+  for (const sheet of document.styleSheets) {
+    let rules; try { rules = sheet.cssRules; } catch (_) { continue; }
+    for (const r of rules) if (r.media && /max-width:\s*760px/.test(r.media.mediaText)) mobile.push({ r, orig: r.media.mediaText });
+  }
+  const touch = () => matchMedia('(pointer: coarse)').matches;
+  const side = () => { const v = Math.min(screen.width || 0, screen.height || 0); return v > 0 && v <= 600 ? v : 0; };
+  const looksLikePhone = () => touch() && side() > 0 && innerWidth > 760 && innerWidth > side() * 1.3;
+  let on = false;
+  function apply() {
+    const wide = innerWidth > 760;
+    on = wide && (mode === 'phone' || (mode === 'auto' && looksLikePhone()));
+    mobile.forEach((m) => { m.r.media.mediaText = on ? 'all' : m.orig; });
+    root.style.zoom = on ? String(Math.round(innerWidth / (side() || 400) * 100) / 100) : '';
+    root.classList.toggle('phone-fit', on);
+    if (btn) {
+      btn.hidden = !(on || mode !== 'auto' || (touch() && wide));
+      btn.textContent = on ? '🖥 Widok szeroki' : '📱 Widok telefonu';
+      btn.title = on ? 'Przełącz na układ jak na komputerze' : 'Przełącz na układ telefonu';
+    }
+  }
+  if (btn) btn.addEventListener('click', () => {
+    mode = on ? 'wide' : 'phone';
+    try { localStorage.setItem(KEY, mode); } catch (_) {}
+    apply();
+  });
+  addEventListener('resize', apply);
+  apply();
+})();
+</script>
 
 <main class="wrap">
   <div class="toolbar">
@@ -3094,9 +3134,9 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       return `<form class="dlg" data-form="checkpoint">
         <h2>${target ? 'Przełącz zadanie' : d.thenStatus === 'paused' ? 'Wstrzymaj i zapisz, gdzie skończyłeś' : 'Przerwij i zapisz, gdzie skończyłeś'}</h2>
         <p>W toku: <b>${esc(cur.title)}</b>${target ? `<br>Nowe TERAZ: <b>${esc(target.title)}</b>` : ''}</p>
-        <p class="hint">Jedno zadanie naraz. Zanim zmienisz zadanie, zapisz checkpoint. Przerwane wraca do „${dest}”.</p>
-        ${field('f-done', 'Co już jest zrobione', '<input type="text" id="f-done" name="done" maxlength="500" autocomplete="off">')}
-        ${field('f-next', 'Następny ruch po powrocie', `<input type="text" id="f-next" name="next" value="${esc(currentStep(cur))}" maxlength="400">`)}
+        <p class="hint">Jedno zadanie naraz. Checkpoint pomaga wrócić do przerwanej roboty, ale niczego nie blokuje — z pustymi polami też przełączy. Przerwane wraca do „${dest}”.</p>
+        ${field('f-done', 'Co już jest zrobione (opcjonalnie)', '<input type="text" id="f-done" name="done" maxlength="500" autocomplete="off">')}
+        ${field('f-next', 'Następny ruch po powrocie (opcjonalnie)', `<input type="text" id="f-next" name="next" value="${esc(currentStep(cur))}" maxlength="400">`)}
         ${field('f-reason', d.thenStatus === 'paused' ? 'Na co czekasz? (opcjonalnie)' : 'Powód przerwania (opcjonalnie)', '<input type="text" id="f-reason" name="reason" maxlength="300">')}
         <p class="err" id="f-err"></p>
         <div class="dlg-actions"><button type="button" class="btn ghost" data-action="close">Anuluj</button><button class="btn primary">${target ? 'Zapisz i przełącz' : d.thenStatus === 'paused' ? 'Zapisz i wstrzymaj' : 'Zapisz checkpoint'}</button></div>
@@ -3418,22 +3458,30 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
 
     if (d.kind === 'checkpoint') {
       const done = val('done'), next = val('next'), reason = val('reason');
-      if (done.length < 2) return formErr('Napisz, co już jest zrobione.');
-      if (next.length < 3) return formErr('Napisz następny ruch po powrocie.');
       const cur = byId(d.currentId), target = d.targetId ? byId(d.targetId) : null;
+      // checkpoint jest notatką dla ciebie, nie bramką: puste pola nie mogą blokować zmiany statusu
+      const noted = !!(done || next || reason);
       closeDialog();
       const stamp = nowIso();
       const ok = await guarded(async () => {
-        await enqueue('checkpoints', () => withRetry(() => state.db.collection('checkpoints').add({
-          taskId: cur.id, taskTitle: cur.title, done, next, reason: reason || (target ? `Przełączenie na: ${target.title}` : ''), createdAt: stamp,
-        })));
-        const curPatch = { status: d.thenStatus || 'todo', nextStep: next, lastCheckpointAt: stamp };
+        if (noted) {
+          await enqueue('checkpoints', () => withRetry(() => state.db.collection('checkpoints').add({
+            taskId: cur.id, taskTitle: cur.title, done, next, reason: reason || (target ? `Przełączenie na: ${target.title}` : ''), createdAt: stamp,
+          })));
+        }
+        const curPatch = { status: d.thenStatus || 'todo' };
+        if (noted) curPatch.lastCheckpointAt = stamp;
+        if (next) curPatch.nextStep = next;
         if (d.thenQuadrant) curPatch.quadrant = d.thenQuadrant;
         if (curPatch.status === 'paused') curPatch.pausedAt = stamp;
         await updateTask(cur.id, curPatch);
         if (target) await updateTask(target.id, { status: 'doing', startedAt: stamp, completedAt: null });
       });
-      if (ok) toast(target ? `Checkpoint zapisany. TERAZ: ${target.title}` : d.thenStatus === 'paused' ? `Wstrzymane: ${cur.title}` : 'Checkpoint zapisany.');
+      if (ok) {
+        toast(target ? `${noted ? 'Checkpoint zapisany. ' : ''}TERAZ: ${target.title}`
+          : d.thenStatus === 'paused' ? `Wstrzymane: ${cur.title}`
+          : noted ? 'Checkpoint zapisany.' : `Przerwane: ${cur.title}`);
+      }
       return;
     }
 
