@@ -1,7 +1,7 @@
 // Service worker tablicy ADHD board: aplikacja ma się otwierać bez sieci.
 // Strona idzie najpierw do sieci (żeby nowa wersja przyszła sama), a bez zasięgu
 // wraca do kopii w pamięci podręcznej. Reszta plików: najpierw pamięć podręczna.
-const CACHE = 'adhd-board-v25';
+const CACHE = 'adhd-board-v27';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 
 self.addEventListener('install', (e) => {

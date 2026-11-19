@@ -611,6 +611,33 @@ button.chk:hover { background: color-mix(in srgb, var(--pc, var(--grey)) 18%, tr
 
 .toast { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 30; background: var(--surface); color: var(--ink); border-left: 4px solid var(--green); padding: 12px 16px; border-radius: 4px; max-width: min(420px, calc(100% - 32px)); box-shadow: var(--shadow-2); }
 
+/* Subskrypcje: strażnik opłat. Karta na usługę, kolor paska mówi, ile zostało do rezygnacji. */
+.mailtabs { max-width: 420px; margin-top: 16px; }
+.bills { display: grid; gap: 12px; padding-block: 16px 40px; max-width: 980px; }
+.bills-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bills-bar .sum { margin-left: auto; font-size: 13px; color: var(--muted); }
+.bills-bar .sum b { color: var(--ink); }
+.bill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 10px; }
+.bill { background: var(--raised); border-radius: 8px; box-shadow: var(--shadow-1); border-left: 4px solid var(--bc, var(--grey)); padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
+.bill.alert { --bc: var(--red); background: var(--red-soft); }
+.bill.soon { --bc: var(--orange); }
+.bill.ok { --bc: var(--green); }
+.bill.off { --bc: var(--grey); opacity: .7; }
+.bill-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.bill-head h3 { margin: 0; font-size: 15px; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.bill-head .amt { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.bill-head .cyc { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.bill-when { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.bill.alert .bill-when { color: var(--red-text); font-weight: 600; }
+.bill-acts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.bill-acts .btn { min-height: 30px; padding: 4px 9px; font-size: 13px; }
+.bill-acts a.btn { text-decoration: none; }
+.bill-note { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.bill-scan { display: grid; gap: 8px; background: var(--column); border-radius: 8px; padding: 12px 14px; }
+.bill-scan h3 { margin: 0; font-size: 15px; }
+.bill-scan p { margin: 0; color: var(--muted); }
+.bill-prog { font-size: 13px; color: var(--muted); }
+
 /* Zakupy: Keep-style lists kept in a Google Sheet (one sheet tab = one list) */
 .shop { max-width: 680px; margin: 16px auto 40px; display: grid; gap: 12px; }
 .shop-card { background: var(--raised); border-radius: 10px; box-shadow: var(--shadow-2); border-top: 4px solid var(--keep); padding: 14px 16px 10px; display: grid; gap: 12px; min-width: 0; }
@@ -662,10 +689,16 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   .swim-cols { grid-template-columns: minmax(0, 1fr); }
   .swim-cols > .lane + .lane { border-left: 0; padding-left: 0; margin-left: 0; }
   .board[data-col="todo"] .lane:not(.todo), .board[data-col="doing"] .lane:not(.doing), .board[data-col="paused"] .lane:not(.paused), .board[data-col="done"] .lane:not(.done) { display: none; }
+  /* „Wszystko”: wszystkie kolumny pod sobą, każda z własnym nagłówkiem, puste schowane */
+  .board[data-col="all"] .lane.vacant { display: none; }
+  .board[data-col="all"] .swim-cols > .lane::before { content: attr(data-label); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+  .board[data-col="all"] .swim:not(:has(.card)) { display: none; }
+  .colpick button .n { display: block; font-size: 11px; font-weight: 700; opacity: .75; }
   .swim-cols > .lane.vacant { min-height: 0; }
   .board[data-col="todo"] .swim:not(:has(.lane.todo .card)), .board[data-col="doing"] .swim:not(:has(.lane.doing .card)), .board[data-col="paused"] .swim:not(:has(.lane.paused .card)), .board[data-col="done"] .swim:not(:has(.lane.done .card)) { display: none; }
   .colpick { display: flex; gap: 4px; margin-top: 16px; background: var(--neutral); padding: 3px; border-radius: 6px; }
-  .colpick button { flex: 1 1 0; min-width: 0; border: 0; background: transparent; padding: 6px 2px; border-radius: 4px; font-weight: 600; font-size: 13px; line-height: 1.2; color: var(--muted); }
+  .colpick { gap: 2px; }
+  .colpick button { flex: 1 1 0; min-width: 0; border: 0; background: transparent; padding: 6px 3px; border-radius: 4px; font-weight: 600; font-size: 11.5px; line-height: 1.25; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
   .colpick button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
   .matrix { grid-template-columns: minmax(0, 1fr); }
   .now-body { grid-template-columns: minmax(0, 1fr); }
@@ -762,7 +795,8 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   <section id="view-board">
     <div id="now"></div>
     <div class="colpick" id="colpick" role="tablist" aria-label="Kolumna">
-      <button id="col-todo" data-action="col" data-col="todo" aria-selected="true">Do zrobienia</button>
+      <button id="col-all" data-action="col" data-col="all" aria-selected="true">Wszystko</button>
+      <button id="col-todo" data-action="col" data-col="todo" aria-selected="false">Do zrobienia</button>
       <button id="col-doing" data-action="col" data-col="doing" aria-selected="false">W toku</button>
       <button id="col-paused" data-action="col" data-col="paused" aria-selected="false">Wstrzymane</button>
       <button id="col-done" data-action="col" data-col="done" aria-selected="false">Gotowe</button>
@@ -785,7 +819,12 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     <div class="cps" id="cps"></div>
   </section>
   <section id="view-mail" hidden>
+    <div class="seg two mailtabs" id="mailtabs" role="tablist" aria-label="Widok poczty">
+      <button type="button" class="seg-b" role="tab" data-action="mailtab" data-t="inbox" aria-selected="true">Skrzynka</button>
+      <button type="button" class="seg-b" role="tab" data-action="mailtab" data-t="bills" aria-selected="false">Subskrypcje <span class="n" id="n-bills" hidden></span></button>
+    </div>
     <div class="mail" id="mail"></div>
+    <div class="bills" id="bills" hidden></div>
   </section>
 </main>
 
@@ -871,7 +910,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   const state = {
     db: null, canWrite: true, phase: 'connecting',
     tasks: [], checkpoints: [], groups: {}, groupsShort: {}, sample: null,
-    view: 'board', col: 'todo', q: '', grp: 'all', showAllDone: false, showCancelled: false,
+    view: 'board', col: 'all', bills: [], q: '', grp: 'all', showAllDone: false, showCancelled: false,
     now: new Date(), dialog: null, lastDayKey: '', lastOffice: null,
     timer: null, // { taskId, endAt, left, total } kept in this browser only
     open: new Set(), // expanded epics and tasks in the Epiki tree, kept in this browser only
@@ -1064,9 +1103,64 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     if (code === 'revoked' || code === 'not_granted') return 'Dostęp do bazy został cofnięty. Odśwież stronę.';
     return 'Nie zapisano: ' + ((e && e.message) || 'nieznany błąd') + '.';
   }
+  // Reguła: podzadania idą za zadaniem. Zmiana statusu zadania przestawia wszystkie jego podzadania,
+  // a zamknięcie zadania odhacza przy okazji jego kroki. W drugą stronę działa tylko komplet:
+  // dopiero ostatnie zamknięte podzadanie zamyka zadanie nadrzędne.
+  // Wyjątek: „W toku” się nie rozlewa, bo tablica trzyma jedno zadanie naraz — podzadania idą wtedy do „Do zrobienia”.
+  const CASCADE_TO = { backlog: 'backlog', todo: 'todo', doing: 'todo', paused: 'paused', done: 'done', cancelled: 'cancelled' };
   function updateTask(id, patch) {
     const body = Object.assign({}, patch, { updatedAt: nowIso() });
-    return enqueue('tasks/' + id, () => withRetry(() => state.db.doc('tasks/' + id).update(body)));
+    const t = byId(id);
+    if (patch.status === 'done' && t && !patch.steps) {
+      const steps = stepsOf(t);
+      if (steps.some((s) => !s.done)) body.steps = steps.map((s) => (s.done ? s : Object.assign({}, s, { done: true, doneAt: body.updatedAt })));
+    }
+    const p = enqueue('tasks/' + id, () => withRetry(() => state.db.doc('tasks/' + id).update(body)));
+    if (patch.status) p.then(() => cascadeStatus(id, patch.status)).catch(() => {});
+    return p;
+  }
+  async function cascadeStatus(id, status) {
+    const to = CASCADE_TO[status];
+    if (!to) return;
+    const stamp = nowIso();
+    for (const k of subsOf(id)) {
+      if (k.status === to) continue;
+      const patch = { status: to, updatedAt: stamp };
+      if (to === 'done') {
+        patch.completedAt = stamp;
+        patch.resolution = 'done';
+        patch.proof = k.proof || `Zamknięte razem z: ${(byId(id) || {}).title || 'zadaniem nadrzędnym'}`;
+        patch.blocked = false;
+        const st = stepsOf(k);
+        if (st.some((x) => !x.done)) patch.steps = st.map((x) => (x.done ? x : Object.assign({}, x, { done: true, doneAt: stamp })));
+      } else if (to === 'cancelled') {
+        patch.cancelledAt = stamp;
+        patch.resolution = k.resolution || 'wontdo';
+        patch.blocked = false;
+      } else {
+        if (to === 'paused') patch.pausedAt = stamp;
+        if (k.status === 'done' || k.status === 'cancelled') { patch.completedAt = null; patch.cancelledAt = null; patch.proof = null; patch.resolution = null; }
+      }
+      await enqueue('tasks/' + k.id, () => withRetry(() => state.db.doc('tasks/' + k.id).update(patch)));
+    }
+    await closeParentIfAllSubsClosed(id, status);
+  }
+  // drugi kierunek: zadanie nadrzędne zamyka się dopiero, gdy wszystkie jego podzadania są zamknięte
+  async function closeParentIfAllSubsClosed(childId, childStatus) {
+    if (childStatus !== 'done' && childStatus !== 'cancelled') return;
+    const child = byId(childId);
+    if (!child || !child.parent) return;
+    const par = byId(child.parent);
+    if (!par || isClosed(par)) return;
+    const kids = subsOf(par.id);
+    if (!kids.length || !kids.every((k) => k.id === childId || isClosed(k))) return;
+    const stamp = nowIso();
+    await enqueue('tasks/' + par.id, () => withRetry(() => state.db.doc('tasks/' + par.id).update({
+      status: 'done', completedAt: stamp, resolution: 'done', blocked: false, updatedAt: stamp,
+      proof: par.proof || `Wszystkie podzadania zamknięte (${kids.length})`,
+      steps: stepsOf(par).map((x) => (x.done ? x : Object.assign({}, x, { done: true, doneAt: stamp }))),
+    })));
+    toast(`Wszystkie podzadania zamknięte → Gotowe: ${par.title}`);
   }
   const deleteTask = (id) => enqueue('tasks/' + id, () => withRetry(() => state.db.doc('tasks/' + id).delete()));
   async function guarded(fn, okMsg) {
@@ -1315,6 +1409,14 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   function renderNotices() {
     const parts = [];
     if (!state.canWrite) parts.push('<div class="notice">Tylko podgląd: nie masz uprawnień do zmian w tej tablicy.</div>');
+    const al = billAlerts();
+    if (al.length) {
+      const first = al[0], st = billState(first);
+      const head = al.length === 1
+        ? `${first.provider}${money(first) ? ` (${money(first)})` : ''} pobierze opłatę ${daysWord(st.days)}${st.due ? `, ${plDay(st.due)}` : ''}.`
+        : `${al.length} ${plural(al.length, 'subskrypcja pobierze opłatę', 'subskrypcje pobiorą opłatę', 'subskrypcji pobierze opłatę')} w najbliższych dniach.`;
+      parts.push(`<div class="notice warn"><span>${esc(head)} Zrezygnuj teraz, jeśli nie chcesz płacić.</span><button class="btn" data-action="go-bills">Pokaż subskrypcje</button></div>`);
+    }
     const doing = doingTasks();
     if (doing.length > 1) {
       parts.push(`<div class="notice warn"><span>W toku są ${doing.length} zadania, a limit to 1.</span>${state.canWrite ? `<button class="btn" data-action="fix-wip">Zostaw tylko „${esc(doing[0].title)}”</button>` : ''}</div>`);
@@ -1439,7 +1541,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
           ? `<div class="swim-fold">${g.open.length} ${plural(g.open.length, 'otwarte', 'otwarte', 'otwartych')}${closedN ? ` · ${closedN} ${plural(closedN, 'zamknięte', 'zamknięte', 'zamkniętych')}` : ''}</div>`
           : `<div class="swim-cols">${BOARD_COLS.map((c) => {
               const list = g.cols[c.key];
-              return `<div class="lane ${c.key} ${list.length ? '' : 'vacant'}" data-drop-status="${c.key}" data-drop-epic="${esc(g.k)}" aria-label="${c.title} — ${esc(g.name)}">${list.map(card).join('')}</div>`;
+              return `<div class="lane ${c.key} ${list.length ? '' : 'vacant'}" data-label="${c.title}" data-drop-status="${c.key}" data-drop-epic="${esc(g.k)}" aria-label="${c.title} — ${esc(g.name)}">${list.map(card).join('')}</div>`;
             }).join('')}</div>`}
       </section>`;
     };
@@ -1449,7 +1551,15 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       : '';
     $('board').innerHTML = head + (rows.length ? rows.map(row).join('') : '<div class="empty">Pusto. Przenieś coś z Backlogu przyciskiem „Na tablicę”.</div>') + foot;
     $('board').dataset.col = state.col;
-    BOARD_COLS.forEach((c) => $('col-' + c.key).setAttribute('aria-selected', String(state.col === c.key)));
+    // na telefonie widać jedną kolumnę naraz, więc liczniki muszą mówić, ile czeka w pozostałych
+    const nOf = (k) => shown.filter((t) => t.status === k || (k === 'done' && t.status === 'cancelled')).length;
+    $('col-all').setAttribute('aria-selected', String(state.col === 'all'));
+    $('col-all').innerHTML = `Wszystko<span class="n">${shown.length}</span>`;
+    BOARD_COLS.forEach((c) => {
+      const el = $('col-' + c.key);
+      el.setAttribute('aria-selected', String(state.col === c.key));
+      el.innerHTML = `${c.title}<span class="n">${nOf(c.key)}</span>`;
+    });
   }
   // upuszczenie karty w swimlanie: zmienia i kolumnę, i epik
   function dropOn(id, status, epicKey) {
@@ -1621,7 +1731,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     $('q').parentElement.hidden = own;
     $('grp').hidden = own;
     // these panes render themselves on their own events; a task snapshot must not wipe a half-written reply or item
-    if (state.view === 'mail') { $('notices').innerHTML = ''; if (!$('mail').hasChildNodes()) renderMail(); return; }
+    if (state.view === 'mail') { $('notices').innerHTML = ''; renderMailView(); return; }
     if (state.view === 'shop') { $('notices').innerHTML = ''; if (!$('shop').hasChildNodes()) renderShop(); return; }
     if (renderState()) return;
     renderNotices();
@@ -2179,6 +2289,332 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     addShopRows(target, chosen);
   }
 
+  // ---------- Subskrypcje: strażnik opłat (moduł Poczta) ----------
+  // Czyta z Gmaila maile o subskrypcjach, wyciąga z nich kwotę, cykl i datę kolejnego obciążenia,
+  // a potem pilnuje, żeby zdążyć zrezygnować PRZED pobraniem pieniędzy. Dane siedzą w bazie tablicy,
+  // więc raz sprawdzona subskrypcja zostaje nawet wtedy, gdy mail wyleci ze skrzynki.
+  const GCAL = 'Google Calendar';
+  const CYCLE_LABEL = { month: 'miesięcznie', year: 'rocznie', week: 'tygodniowo', quarter: 'kwartalnie', trial: 'okres próbny', once: 'jednorazowo' };
+  const CYCLE_DAYS = { week: 7, month: 30, quarter: 91, year: 365, trial: 0, once: 0 };
+  const BILL_STATUS = { watch: 'Pilnuję', keep: 'Zostawiam', cancelled: 'Zrezygnowane' };
+  // kilka zapytań zamiast jednego: Gmail nie ma „pokaż subskrypcje”, więc łapiemy typowe słowa z obu języków
+  const BILL_QUERIES = [
+    'newer_than:150d (subskrypcj OR subscription OR abonament OR "odnowi" OR renewal OR renews OR "auto-renew")',
+    'newer_than:150d ("okres próbny" OR "free trial" OR "trial ends" OR "trial will end" OR "zakończy się okres")',
+    'newer_than:120d (faktura OR invoice OR "potwierdzenie płatności" OR receipt OR "payment received" OR "obciążymy")',
+  ];
+  const bills = { status: 'idle', error: null, scan: null, busy: '', note: '' };
+
+  const billKey = (b) => String(b.provider || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  function parseDay(v) {
+    const m = String(v || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+    return isNaN(d) ? null : d;
+  }
+  const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+  // zapisujemy jedną datę, a kolejne terminy wyliczamy — dzięki temu wpis nie zdezaktualizuje się po miesiącu
+  function nextDue(b) {
+    const d = parseDay(b.nextChargeAt);
+    if (!d) return null;
+    if (b.cycle === 'trial' || b.cycle === 'once') return d;
+    const today = startOfToday();
+    let guard = 0;
+    while (d < today && guard++ < 200) {
+      if (b.cycle === 'year') d.setFullYear(d.getFullYear() + 1);
+      else if (b.cycle === 'week') d.setDate(d.getDate() + 7);
+      else if (b.cycle === 'quarter') d.setMonth(d.getMonth() + 3);
+      else d.setMonth(d.getMonth() + 1);
+    }
+    return d;
+  }
+  function billState(b) {
+    const due = nextDue(b);
+    const notice = Math.max(0, Number(b.noticeDays) || 5);
+    if (b.status === 'cancelled') return { kind: 'off', due, notice };
+    if (!due) return { kind: 'nodate', due: null, notice };
+    const today = startOfToday();
+    const days = Math.round((due - today) / 86400000);
+    const cancelBy = new Date(due); cancelBy.setDate(cancelBy.getDate() - notice);
+    const muted = b.status === 'keep' && b.keepUntil && isoDay(due) <= b.keepUntil;
+    let kind = 'ok';
+    if (muted) kind = 'off';
+    else if (days <= notice) kind = 'alert';
+    else if (days <= notice + 7) kind = 'soon';
+    return { kind, due, days, cancelBy, notice, muted };
+  }
+  const billAlerts = () => state.bills.filter((b) => billState(b).kind === 'alert');
+  function money(b) {
+    const a = Number(b.amount);
+    if (!isFinite(a) || a <= 0) return '';
+    const cur = String(b.currency || 'PLN').toUpperCase();
+    const n = a.toFixed(2).replace('.', ',').replace(/,00$/, '');
+    return `${n} ${cur === 'PLN' ? 'zł' : cur}`;
+  }
+  const plDay = (d) => (d ? `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}` : '');
+  function daysWord(n) {
+    if (n === 0) return 'dziś';
+    if (n === 1) return 'jutro';
+    if (n < 0) return `${-n} ${plural(-n, 'dzień', 'dni', 'dni')} temu`;
+    return `za ${n} ${plural(n, 'dzień', 'dni', 'dni')}`;
+  }
+
+  // ---------- skanowanie poczty ----------
+  async function gmailCall(tool, input, opts) {
+    if (!mail.mcp) throw { code: 'not_granted' };
+    return readCall(tool, input, opts);
+  }
+  async function billScan() {
+    if (bills.status === 'scanning') return;
+    bills.status = 'scanning'; bills.error = null; bills.scan = null; bills.note = 'Szukam w Gmailu…';
+    renderBills();
+    try {
+      // 1. zbieramy kandydatów z kilku zapytań i usuwamy powtórki
+      const seen = new Map();
+      for (const q of BILL_QUERIES) {
+        const r = await gmailCall('search_threads', { query: q, pageSize: 12 });
+        const p = r && r.payload;
+        const list = Array.isArray(pick(p, 'threads')) ? p.threads : Array.isArray(p) ? p : [];
+        list.map(normThread).map(summary).forEach((t) => { if (t.id && !seen.has(t.id)) seen.set(t.id, t); });
+      }
+      const cand = [...seen.values()].sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 14);
+      if (!cand.length) { bills.status = 'ready'; bills.scan = { items: [] }; bills.note = ''; renderBills(); return; }
+      // 2. pełne treści — snippet nie wystarcza, kwota i data siedzą w środku
+      const docs = [];
+      for (let i = 0; i < cand.length; i++) {
+        bills.note = `Czytam wiadomość ${i + 1} z ${cand.length}…`;
+        renderBills();
+        try {
+          const r = await gmailCall('get_thread', { threadId: cand[i].id });
+          const th = normThread((r && r.payload) || {});
+          const m = th.messages[th.messages.length - 1] || {};
+          docs.push({
+            id: cand[i].id,
+            url: th.url || cand[i].url || null,
+            from: nameOf(cand[i].from) + (cand[i].from.email ? ` <${cand[i].from.email}>` : ''),
+            date: cand[i].date ? isoDay(cand[i].date) : '',
+            subject: cand[i].subject,
+            body: tidyBody(m.body || '').slice(0, 2500),
+          });
+        } catch (_) { /* jedna nieczytelna wiadomość nie psuje całego skanu */ }
+      }
+      // 3. wyciągnięcie danych przez AI
+      bills.note = 'Claude czyta wyniki…';
+      renderBills();
+      const items = await billExtract(docs);
+      bills.scan = { items: items.map((x) => Object.assign({ on: true }, x)) };
+      bills.status = 'ready';
+      bills.note = '';
+    } catch (e) {
+      bills.status = 'error'; bills.error = e; bills.note = '';
+    }
+    renderBills();
+  }
+  async function billExtract(docs) {
+    if (!state.sample || !docs.length) return [];
+    const today = isoDay(new Date());
+    const prompt = [
+      `Dziś jest ${today}. Poniżej maile z czyjejś skrzynki. Znajdź w nich płatne subskrypcje i okresy próbne.`,
+      'Dla każdej usługi zwróć JEDEN wpis, nawet jeśli pasuje kilka maili (weź najnowszy).',
+      'Pomiń: zwykłe zakupy jednorazowe, newslettery bez opłaty, reklamy, rachunki za prąd, gaz, wodę, czynsz i raty kredytu.',
+      'Pola:',
+      '- provider: nazwa usługi, krótko, np. "Microsoft 365", "Netflix", "ChatGPT Plus".',
+      '- amount: liczba bez waluty (kropka dziesiętna) albo 0, gdy nie podano.',
+      '- currency: PLN, EUR, USD… (domyślnie PLN).',
+      '- cycle: month, year, quarter, week, trial albo once.',
+      '- nextChargeAt: data kolejnego obciążenia RRRR-MM-DD. Jeśli mail jej nie podaje, policz ją z daty maila i cyklu. Jeśli się nie da, pusty string.',
+      '- trialEnds: dla okresu próbnego data końca RRRR-MM-DD albo pusty string.',
+      '- cancelUrl: pełny adres https do zarządzania subskrypcją, jeśli jest w mailu; inaczej pusty string.',
+      '- threadId: id maila, z którego to wzięte (pole "id" z wejścia).',
+      '- confidence: 0-1, jak pewny jesteś, że to płatna subskrypcja.',
+      'Odpowiedz wyłącznie JSON-em: {"items":[...]}. Bez subskrypcji: {"items":[]}.',
+      '',
+      JSON.stringify(docs),
+    ].join('\n');
+    const out = await state.sample.json(prompt, { modelTier: 'default' });
+    const arr = out && Array.isArray(out.items) ? out.items : Array.isArray(out) ? out : [];
+    return arr.map((x) => {
+      const cycle = CYCLE_LABEL[x && x.cycle] ? x.cycle : 'month';
+      const src = docs.find((d) => d.id === (x && x.threadId)) || null;
+      const when = String((x && (cycle === 'trial' ? x.trialEnds || x.nextChargeAt : x.nextChargeAt)) || '').slice(0, 10);
+      return {
+        provider: tidyLine(x && x.provider).slice(0, 80),
+        amount: Math.max(0, Number(x && x.amount) || 0),
+        currency: String((x && x.currency) || 'PLN').toUpperCase().slice(0, 6),
+        cycle,
+        nextChargeAt: /^\d{4}-\d{2}-\d{2}$/.test(when) ? when : '',
+        cancelUrl: safeHttps(x && x.cancelUrl) ? x.cancelUrl : '',
+        threadId: src ? src.id : '',
+        threadUrl: src && safeHttps(src.url) ? src.url : '',
+        confidence: Number(x && x.confidence) || 0,
+      };
+    }).filter((x) => x.provider && x.confidence >= 0.4)
+      .filter((x) => !state.bills.some((b) => billKey(b) === billKey(x)));
+  }
+
+  // ---------- zapis i działania ----------
+  function billDoc(x) {
+    const stamp = nowIso();
+    return {
+      provider: x.provider, amount: Number(x.amount) || 0, currency: x.currency || 'PLN',
+      cycle: x.cycle || 'month', nextChargeAt: x.nextChargeAt || '', noticeDays: Number(x.noticeDays) || (x.cycle === 'trial' ? 2 : 5),
+      cancelUrl: x.cancelUrl || '', threadId: x.threadId || '', threadUrl: x.threadUrl || '',
+      status: 'watch', keepUntil: null, note: x.note || '', createdAt: stamp, updatedAt: stamp,
+    };
+  }
+  function billsAdd() {
+    const chosen = ((bills.scan && bills.scan.items) || []).filter((x) => x.on);
+    if (!chosen.length) { toast('Zaznacz choć jedną subskrypcję.'); return; }
+    guarded(async () => {
+      for (const x of chosen) await withRetry(() => state.db.collection('bills').add(billDoc(x)));
+    }, `Pilnuję ${chosen.length} ${plural(chosen.length, 'subskrypcji', 'subskrypcji', 'subskrypcji')}.`).then((ok) => {
+      if (ok) { bills.scan = null; renderBills(); }
+    });
+  }
+  const updateBill = (id, patch) => enqueue('bills/' + id, () => withRetry(() => state.db.doc('bills/' + id).update(Object.assign({}, patch, { updatedAt: nowIso() }))));
+  function billById(id) { return state.bills.find((b) => b.id === id); }
+  function billMark(id, status) {
+    const b = billById(id);
+    if (!b) return;
+    const st = billState(b);
+    const patch = { status };
+    if (status === 'keep') patch.keepUntil = st.due ? isoDay(st.due) : null;
+    if (status === 'cancelled') patch.cancelledAt = nowIso();
+    if (status === 'watch') { patch.keepUntil = null; patch.cancelledAt = null; }
+    guarded(() => updateBill(id, patch), `${b.provider}: ${BILL_STATUS[status]}`);
+  }
+  // zadanie na tablicy z terminem „do kiedy zdążysz zrezygnować”
+  function billTask(id) {
+    const b = billById(id);
+    if (!b || state.phase !== 'ready') return;
+    const st = billState(b);
+    const by = st.cancelBy && st.cancelBy > startOfToday() ? st.cancelBy : st.due;
+    openDialog('new', { prefill: {
+      title: `Zrezygnować z ${b.provider}`.slice(0, 300),
+      quadrant: 'Q1', priority: 'P1', estMin: 15,
+      due: by ? isoDay(by) : null,
+      doneWhen: `Mam potwierdzenie rezygnacji z ${b.provider}`,
+      notes: [`Subskrypcja ${b.provider}${money(b) ? `, ${money(b)} ${CYCLE_LABEL[b.cycle] || ''}` : ''}.`,
+        st.due ? `Kolejne obciążenie: ${plDay(st.due)}.` : '',
+        b.cancelUrl ? `Rezygnacja: ${b.cancelUrl}` : ''].filter(Boolean).join('\n'),
+      source: 'Subskrypcje', sourceUrl: b.cancelUrl || b.threadUrl || null,
+      steps: [mkStep('Wejść na stronę subskrypcji'), mkStep('Wyłączyć automatyczne odnawianie'), mkStep('Zapisać potwierdzenie (zrzut albo mail)')],
+    } });
+  }
+  // przypomnienie w Kalendarzu Google: jedyny kanał, który odezwie się, gdy tablica jest zamknięta
+  async function billCalendar(id) {
+    const b = billById(id);
+    if (!b) return;
+    const st = billState(b);
+    const day = st.cancelBy && st.cancelBy > startOfToday() ? st.cancelBy : st.due;
+    if (!day) { toast('Najpierw ustaw datę kolejnego obciążenia.'); return; }
+    if (!mail.mcp) { toast('Kalendarz działa tylko w claude.ai.'); return; }
+    bills.busy = id; renderBills();
+    const ymd = isoDay(day);
+    try {
+      await mail.mcp.callTool(GCAL, 'create_event', {
+        summary: `Zrezygnować z ${b.provider}${money(b) ? ` (${money(b)})` : ''}`,
+        description: [st.due ? `Obciążenie: ${plDay(st.due)}.` : '', b.cancelUrl ? `Rezygnacja: ${b.cancelUrl}` : '', 'Z tablicy ADHD board.'].filter(Boolean).join('\n'),
+        startTime: `${ymd}T09:00:00`, endTime: `${ymd}T09:15:00`,
+        overrideReminders: [{ method: 'popup', minutes: 0 }, { method: 'popup', minutes: 120 }],
+      });
+      await updateBill(id, { calendarAt: ymd });
+      toast(`Przypomnienie w kalendarzu: ${plDay(day)}`);
+    } catch (e) {
+      toast(e && e.code === 'not_in_manifest' ? 'Tablica nie ma jeszcze zgody na Kalendarz Google. Włącz go w Uprawnieniach artefaktu.' : mailErrorInfo(e).text);
+    }
+    bills.busy = ''; renderBills();
+  }
+
+  // ---------- widok ----------
+  function billRow(b) {
+    const st = billState(b);
+    const amt = money(b);
+    const when = st.kind === 'nodate' ? 'Brak daty obciążenia — ustaw ją, żeby pilnować.'
+      : st.kind === 'off' ? (b.status === 'cancelled' ? 'Zrezygnowane.' : `Zostawiasz do ${plDay(st.due)}.`)
+      : st.kind === 'alert'
+        ? (st.days <= 0 ? `Obciążenie ${daysWord(st.days)} (${plDay(st.due)}). Ostatni moment.` : `Obciążenie ${daysWord(st.days)}, ${plDay(st.due)}. ${st.cancelBy && st.cancelBy > startOfToday() ? `Zrezygnuj do ${plDay(st.cancelBy)}.` : 'Zrezygnuj dziś — termin wypowiedzenia już minął.'}`)
+        : `Obciążenie ${daysWord(st.days)}, ${plDay(st.due)}. Rezygnacja do ${plDay(st.cancelBy)}.`;
+    const busy = bills.busy === b.id;
+    return `<article class="bill ${st.kind}" aria-label="Subskrypcja ${esc(b.provider)}">
+      <div class="bill-head"><h3>${esc(b.provider)}</h3>${amt ? `<span class="amt">${esc(amt)}</span>` : ''}<span class="cyc">${esc(CYCLE_LABEL[b.cycle] || b.cycle)}</span>${b.status !== 'watch' ? `<span class="loz">${esc(BILL_STATUS[b.status] || '')}</span>` : ''}</div>
+      <p class="bill-when">${esc(when)}</p>
+      ${b.note ? `<p class="bill-note">${esc(b.note)}</p>` : ''}
+      <div class="bill-acts">
+        ${b.cancelUrl ? `<a class="btn ${st.kind === 'alert' ? 'danger' : ''}" href="${esc(b.cancelUrl)}" target="_blank" rel="noopener noreferrer">${ic('ext')}Zrezygnuj</a>` : ''}
+        ${state.canWrite ? `<button class="btn" data-action="bill-task" data-id="${esc(b.id)}">${ic('right')}Zadanie</button>` : ''}
+        ${state.canWrite ? `<button class="btn" data-action="bill-cal" data-id="${esc(b.id)}" ${busy ? 'disabled' : ''}>${ic('cal')}${busy ? 'Zapisuję…' : b.calendarAt ? 'Kalendarz ✓' : 'Kalendarz'}</button>` : ''}
+        ${state.canWrite && b.status === 'watch' ? `<button class="btn ghost" data-action="bill-keep" data-id="${esc(b.id)}" title="Nie przypominaj do kolejnego obciążenia">Zostawiam</button>` : ''}
+        ${state.canWrite && b.status !== 'cancelled' ? `<button class="btn ghost" data-action="bill-done" data-id="${esc(b.id)}">Zrezygnowałem</button>` : ''}
+        ${state.canWrite && b.status !== 'watch' ? `<button class="btn ghost" data-action="bill-watch" data-id="${esc(b.id)}">Pilnuj znowu</button>` : ''}
+        ${b.threadUrl ? `<a class="src" href="${esc(b.threadUrl)}" target="_blank" rel="noopener noreferrer" title="Mail w Gmailu" aria-label="Mail w Gmailu">${ic('ext')}</a>` : ''}
+        ${state.canWrite ? `<button class="icon-btn" data-action="bill-edit" data-id="${esc(b.id)}" title="Edytuj" aria-label="Edytuj ${esc(b.provider)}">${ic('edit')}</button>` : ''}
+        ${state.canWrite ? trashBtn(`data-del="bill" data-id="${esc(b.id)}"`, `Usuń subskrypcję ${b.provider}`) : ''}
+      </div>
+    </article>`;
+  }
+  function billScanHtml() {
+    const sc = bills.scan;
+    if (!sc) return '';
+    if (!sc.items.length) return '<div class="bill-scan"><h3>Nie znalazłem nowych subskrypcji</h3><p>Albo nic nie przyszło w ostatnich miesiącach, albo nazwy nie przypominają subskrypcji. Dodaj ręcznie przyciskiem „Dodaj sam”.</p></div>';
+    const on = sc.items.filter((x) => x.on).length;
+    return `<div class="bill-scan">
+      <h3>Znalezione w poczcie: ${sc.items.length}</h3>
+      <p>Odznacz to, czego nie chcesz pilnować. Daty i kwoty możesz poprawić po dodaniu.</p>
+      <div class="imp-list">${sc.items.map((x, i) => `<label class="imp-row ${x.on ? '' : 'dim'}">
+        <input type="checkbox" data-bill-on="${i}" ${x.on ? 'checked' : ''} aria-label="Pilnuj: ${esc(x.provider)}">
+        <span class="t"><b>${esc(x.provider)}</b><span class="lozs">${money(x) ? `<span class="loz">${esc(money(x))}</span>` : ''}<span class="loz">${esc(CYCLE_LABEL[x.cycle] || x.cycle)}</span>${x.nextChargeAt ? `<span class="loz blue">${esc(plDay(parseDay(x.nextChargeAt)))}</span>` : '<span class="loz yellow">brak daty</span>'}</span></span>
+      </label>`).join('')}</div>
+      <div class="bill-acts"><button class="btn primary" data-action="bill-save" ${on ? '' : 'disabled'}>Pilnuj ${on} ${plural(on, 'subskrypcji', 'subskrypcji', 'subskrypcji')}</button><button class="btn ghost" data-action="bill-scan-clear">Odrzuć</button></div>
+    </div>`;
+  }
+  function renderBills() {
+    const root = $('bills');
+    if (!root) return;
+    updateBillBadge();
+    if (state.phase === 'nodb') { root.innerHTML = '<div class="state"><h2>Subskrypcje działają w claude.ai</h2><p>Tam tablica ma dostęp do bazy i do Gmaila.</p></div>'; return; }
+    const list = state.bills.slice().sort((a, b) => {
+      const A = billState(a), B = billState(b);
+      const rank = { alert: 0, soon: 1, ok: 2, nodate: 3, off: 4 };
+      return (rank[A.kind] - rank[B.kind]) || ((A.due || 0) - (B.due || 0)) || String(a.provider).localeCompare(String(b.provider), 'pl');
+    });
+    const watched = list.filter((b) => b.status === 'watch');
+    const perMonth = watched.reduce((sum, b) => {
+      const a = Number(b.amount) || 0;
+      if (!a || b.cycle === 'once' || b.cycle === 'trial') return sum;
+      const d = CYCLE_DAYS[b.cycle] || 30;
+      return sum + a * (30 / d);
+    }, 0);
+    const alerts = billAlerts();
+    root.innerHTML = `
+      <div class="bills-bar">
+        ${state.canWrite ? `<button class="btn primary" data-action="bill-scan" ${bills.status === 'scanning' ? 'disabled' : ''}>${ic('reset')}${bills.status === 'scanning' ? 'Skanuję…' : 'Przeskanuj pocztę'}</button>` : ''}
+        ${state.canWrite ? `<button class="btn" data-action="bill-new">${ic('plus')}Dodaj sam</button>` : ''}
+        ${bills.note ? `<span class="bill-prog">${esc(bills.note)}</span>` : ''}
+        ${watched.length ? `<span class="sum">Pilnowane: <b>${watched.length}</b>${perMonth > 0 ? ` · ok. <b>${perMonth.toFixed(0)} zł</b> miesięcznie` : ''}</span>` : ''}
+      </div>
+      ${bills.status === 'error' ? `<div class="notice warn" role="alert"><span>${esc(mailErrorInfo(bills.error).text)}</span><button class="btn" data-action="bill-scan">Spróbuj ponownie</button></div>` : ''}
+      ${alerts.length ? `<div class="notice warn" role="alert"><span><b>${alerts.length}</b> ${plural(alerts.length, 'subskrypcja chce', 'subskrypcje chcą', 'subskrypcji chce')} zaraz pobrać pieniądze. Zrezygnuj teraz albo zostaw świadomie.</span></div>` : ''}
+      ${billScanHtml()}
+      ${list.length ? `<div class="bill-grid">${list.map(billRow).join('')}</div>`
+        : '<div class="state"><h2>Nic jeszcze nie pilnuję</h2><p>Kliknij „Przeskanuj pocztę”. Przejrzę maile z ostatnich miesięcy i wypiszę subskrypcje razem z datą kolejnego obciążenia. Potem tablica przypomni, zanim pieniądze wyjdą z konta.</p></div>'}`;
+  }
+  function updateBillBadge() {
+    const n = $('n-bills');
+    if (!n) return;
+    const a = billAlerts().length;
+    n.hidden = !a;
+    n.textContent = String(a);
+  }
+  function renderMailView() {
+    const inbox = mail.tab !== 'bills';
+    $('mail').hidden = !inbox;
+    $('bills').hidden = inbox;
+    const tabs = $('mailtabs');
+    if (tabs) [...tabs.querySelectorAll('[data-t]')].forEach((b) => b.setAttribute('aria-selected', String((b.dataset.t === 'bills') === !inbox)));
+    if (inbox) { if (!$('mail').hasChildNodes()) renderMail(); } else renderBills();
+  }
+
   // ---------- mail: Gmail connector through the mcp capability ----------
   const GMAIL = 'Gmail';
   const MAIL_FILTERS = [
@@ -2191,7 +2627,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   const mail = {
     started: false, mcp: null, perms: null,
     status: 'idle', error: null, unknownShape: false, threads: [], next: null,
-    filter: 'inbox', query: 'in:inbox',
+    tab: 'inbox', filter: 'inbox', query: 'in:inbox',
     openId: null, thread: null, threadStatus: 'idle', threadError: null,
     draft: '', draftUrl: null, busy: false, showFull: {},
   };
@@ -3154,6 +3590,28 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
         <div class="dlg-actions"><button type="button" class="btn ghost" data-action="close">Nie</button><button class="btn danger">${ic('x')}Anuluj zadanie</button></div>
       </form>`;
     }
+    if (d.kind === 'bill') {
+      const b = d.id ? billById(d.id) : null;
+      const v = b || { provider: '', amount: '', currency: 'PLN', cycle: 'month', nextChargeAt: '', noticeDays: 5, cancelUrl: '', note: '' };
+      return `<form class="dlg" data-form="bill">
+        <h2>${b ? 'Subskrypcja: ' + esc(b.provider) : 'Nowa subskrypcja'}</h2>
+        <p class="hint">Tablica policzy, do kiedy zdążysz zrezygnować: data obciążenia minus zapas dni. Przy cyklu miesięcznym i rocznym datę przesuwa sama, więc wpisujesz ją raz.</p>
+        ${field('f-bprov', 'Usługa', `<input type="text" id="f-bprov" name="provider" value="${esc(v.provider)}" maxlength="80" required autocomplete="off" placeholder="np. Microsoft 365">`)}
+        <div class="row">
+          ${field('f-bamt', 'Kwota', `<input type="number" id="f-bamt" name="amount" value="${esc(v.amount === 0 ? '' : v.amount)}" min="0" step="0.01" inputmode="decimal">`)}
+          ${field('f-bcur', 'Waluta', `<select id="f-bcur" name="currency">${['PLN', 'EUR', 'USD', 'GBP', 'CHF'].map((c) => `<option value="${c}" ${v.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
+          ${field('f-bcyc', 'Cykl', `<select id="f-bcyc" name="cycle">${Object.keys(CYCLE_LABEL).map((c) => `<option value="${c}" ${v.cycle === c ? 'selected' : ''}>${CYCLE_LABEL[c]}</option>`).join('')}</select>`)}
+        </div>
+        <div class="row">
+          ${field('f-bdate', 'Kolejne obciążenie', `<input type="date" id="f-bdate" name="nextChargeAt" value="${esc(v.nextChargeAt || '')}">`)}
+          ${field('f-bnot', 'Zapas na rezygnację (dni)', `<input type="number" id="f-bnot" name="noticeDays" value="${esc(v.noticeDays || 5)}" min="0" max="60">`)}
+        </div>
+        ${field('f-burl', 'Link do rezygnacji (opcjonalnie)', `<input type="text" id="f-burl" name="cancelUrl" value="${esc(v.cancelUrl || '')}" maxlength="500" placeholder="https://…" autocomplete="off">`)}
+        ${field('f-bnote', 'Notatka (opcjonalnie)', `<input type="text" id="f-bnote" name="note" value="${esc(v.note || '')}" maxlength="200">`)}
+        <p class="err" id="f-err"></p>
+        <div class="dlg-actions"><button type="button" class="btn ghost" data-action="close">Anuluj</button><button class="btn primary">${b ? 'Zapisz' : 'Pilnuj tej subskrypcji'}</button></div>
+      </form>`;
+    }
     if (d.kind === 'shop-list') return shopListHtml(d);
     if (d.kind === 'shop-import') return keepImportHtml(d);
     if (d.kind === 'shop-sheet') return shopSheetHtml(d);
@@ -3223,7 +3681,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       dd.atts = kind === 'edit' ? attsOf(byId(dd.id)).slice() : ((dd.prefill && dd.prefill.attachments) || []).slice();
     }
     $('dlg-root').innerHTML = `<div class="overlay" data-overlay="1" role="dialog" aria-modal="true">${dialogHtml(state.dialog)}</div>`;
-    const target = $('dlg-root').querySelector('#f-proof, #f-done, #f-blocker, #f-title, #f-ename, #f-pname, #f-creason, #f-lname, #keep-text, #f-surl');
+    const target = $('dlg-root').querySelector('#f-proof, #f-done, #f-blocker, #f-title, #f-ename, #f-pname, #f-creason, #f-lname, #keep-text, #f-surl, #f-bprov');
     if (target) target.focus();
   }
   // re-render after closing so a status picker that opened a dialog shows the real status again
@@ -3353,6 +3811,9 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       if (!t) return;
       const steps = stepsOf(t).filter((s) => s.id !== el.dataset.step);
       guarded(() => updateTask(id, { steps }), 'Usunięto krok.');
+    } else if (kind === 'bill') {
+      const b = billById(el.dataset.id);
+      if (b) guarded(() => enqueue('bills/' + b.id, () => withRetry(() => state.db.doc('bills/' + b.id).delete())), `Usunięto: ${b.provider}`);
     } else if (kind === 'epic') deleteEpic(el.dataset.g);
     else if (kind === 'shop-item') {
       const it = shop.items.find((x) => x.key === el.dataset.key);
@@ -3397,6 +3858,23 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       if (state.timer && state.timer.taskId === d.id) flushTime();
       const ok = await guarded(() => updateTask(d.id, { status: 'cancelled', cancelledAt: nowIso(), cancelReason: reason || null, resolution: res, blocked: false }), `Anulowane (${RES_LABEL[res]}): ${t ? t.title : ''}`);
       if (ok && state.timer && state.timer.taskId === d.id) { state.timer = null; saveTimer(); }
+      return;
+    }
+    if (d.kind === 'bill') {
+      const provider = val('provider');
+      if (provider.length < 2) return formErr('Wpisz nazwę usługi.');
+      const url = val('cancelUrl');
+      if (url && !safeHttps(url)) return formErr('Link do rezygnacji musi zaczynać się od https://');
+      const patch = {
+        provider, amount: Math.max(0, Number(val('amount')) || 0), currency: val('currency') || 'PLN',
+        cycle: CYCLE_LABEL[val('cycle')] ? val('cycle') : 'month',
+        nextChargeAt: /^\d{4}-\d{2}-\d{2}$/.test(val('nextChargeAt')) ? val('nextChargeAt') : '',
+        noticeDays: Math.min(60, Math.max(0, Number(val('noticeDays')) || 5)),
+        cancelUrl: url, note: val('note'),
+      };
+      closeDialog();
+      if (d.id) guarded(() => updateBill(d.id, patch), `Zapisano: ${provider}`);
+      else guarded(() => withRetry(() => state.db.collection('bills').add(billDoc(patch))), `Pilnuję: ${provider}`);
       return;
     }
     if (d.kind === 'shop-list') {
@@ -3752,6 +4230,18 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       }
       case 'keep-file-del': dropKeepFile(Number(el.dataset.i)); break;
       case 'toggle-cancelled': state.showCancelled = !state.showCancelled; renderBoard(); break;
+      case 'mailtab': mail.tab = el.dataset.t === 'bills' ? 'bills' : 'inbox'; try { localStorage.setItem('teraz.mailtab', mail.tab); } catch (_) {} renderMailView(); if (mail.tab === 'inbox') initMail(); break;
+      case 'go-bills': state.view = 'mail'; mail.tab = 'bills'; try { localStorage.setItem('teraz.view', 'mail'); localStorage.setItem('teraz.mailtab', 'bills'); } catch (_) {} renderAll(); initMail(); break;
+      case 'bill-scan': initMail(); billScan(); break;
+      case 'bill-scan-clear': bills.scan = null; renderBills(); break;
+      case 'bill-save': billsAdd(); break;
+      case 'bill-new': openDialog('bill', { id: null }); break;
+      case 'bill-edit': openDialog('bill', { id: el.dataset.id }); break;
+      case 'bill-task': billTask(el.dataset.id); break;
+      case 'bill-cal': billCalendar(el.dataset.id); break;
+      case 'bill-keep': billMark(el.dataset.id, 'keep'); break;
+      case 'bill-done': billMark(el.dataset.id, 'cancelled'); break;
+      case 'bill-watch': billMark(el.dataset.id, 'watch'); break;
       case 'mail-filter': { const f = MAIL_FILTERS.find((x) => x.id === el.dataset.f); if (f) { mail.filter = f.id; mail.query = f.q; mail.openId = null; loadThreads(false, false); } break; }
       case 'mail-refresh': loadThreads(true, false); break;
       case 'mail-retry': if (mail.threadStatus === 'error' && mail.openId) openThread(mail.openId); else loadThreads(true, false); break;
@@ -3767,7 +4257,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
         if (mail.perms) mail.perms.manage().then(() => loadThreads(true, false)).catch(fallback); else fallback();
         break;
       }
-      case 'col': state.col = el.dataset.col; renderBoard(); break;
+      case 'col': state.col = el.dataset.col; try { localStorage.setItem('teraz.col', state.col); } catch (_) {} renderBoard(); break;
       case 'eg-toggle': { const key = 'bc:' + el.dataset.g; if (state.open.has(key)) state.open.delete(key); else state.open.add(key); saveOpen(); renderBoard(); break; }
       case 'new': if (state.canWrite && state.phase === 'ready') openDialog('new'); break;
       case 'voice': if (state.dict && state.canWrite && state.phase === 'ready') { startVoice(); if (!state.dialog) { voice.target = 'f-title'; openDialog('new'); } } break;
@@ -3865,6 +4355,10 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     if (el.dataset && el.dataset.keepOn != null && state.dialog && state.dialog.kind === 'shop-import') {
       const it = state.dialog.items[Number(el.dataset.keepOn)];
       if (it) { it.on = el.checked; renderKeepImport(); }
+    }
+    if (el.dataset && el.dataset.billOn != null && bills.scan) {
+      const it = bills.scan.items[Number(el.dataset.billOn)];
+      if (it) { it.on = el.checked; renderBills(); }
     }
     if (el.id === 'keep-files') { const files = [...el.files]; el.value = ''; if (files.length) addKeepFiles(files); }
     // import dialog: lists, importance, epic, picks
@@ -4025,6 +4519,8 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
 
   // ---------- boot ----------
   try { const v = localStorage.getItem('teraz.view'); if (VIEWS.includes(v)) state.view = v; } catch (_) {}
+  try { const c = localStorage.getItem('teraz.col'); if (['all', 'todo', 'doing', 'paused', 'done'].includes(c)) state.col = c; } catch (_) {}
+  try { if (localStorage.getItem('teraz.mailtab') === 'bills') mail.tab = 'bills'; } catch (_) {}
   loadTimer();
   loadOpen();
   state.lastDayKey = isoDay(state.now);
@@ -4064,6 +4560,13 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       renderGroups();
       renderAll();
     }, (err) => toast(errorText(err)));
+
+    db.collection('bills').onSnapshot((snap) => {
+      state.bills = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      updateBillBadge();
+      if (state.view === 'mail' && mail.tab === 'bills') renderBills();
+      else renderAll();
+    }, () => {});
 
     db.collection('checkpoints').orderBy('createdAt', 'desc').limit(300).onSnapshot((snap) => {
       state.checkpoints = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
