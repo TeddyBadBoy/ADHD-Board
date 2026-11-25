@@ -15,24 +15,193 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>:root{color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
 <script>
-// --- Tablica poza claude.ai (GitHub Pages / APK) ---
+// --- Tablica poza claude.ai (GitHub Pages / APK / osadzenie w innej stronie) ---
 // W claude.ai dane trzymają zdolności artefaktu. Tutaj ich nie ma, więc podstawiamy
-// bazę opartą na localStorage tej przeglądarki: ta sama garstka metod, inne miejsce zapisu.
+// własną bazę: ta sama garstka metod, inne miejsce zapisu.
 // To ŚWIADOMIE osobna baza niż tablica w claude.ai — nic się między nimi nie synchronizuje.
+//
+// Zapis idzie dwiema drogami, bo jedna bywa odcięta:
+//   1. localStorage — szybki, czytany synchronicznie przy starcie,
+//   2. IndexedDB — zapas; działa tam, gdzie localStorage padł, i odtwarza dane po starcie.
+// Gdy obie drogi są zamknięte (strona osadzona w ramce z sandboxem, np. w Google Sites,
+// albo tryb prywatny), NIE udajemy, że zapisujemy. Pokazujemy pasek ostrzegawczy
+// z linkiem do otwarcia strony w osobnej karcie i z eksportem danych do pliku.
 (function () {
   if (window.claude && typeof window.claude.use === 'function') return; // w claude.ai nic nie ruszamy
   var KEY = 'adhd-board.db.v1';
   var store = { tasks: {}, checkpoints: {}, meta: {} };
-  function load() {
+  var embedded = false;
+  try { embedded = window.top !== window.self; } catch (e) { embedded = true; } // błąd = inna domena, czyli ramka
+  var canLS = false, canIDB = typeof indexedDB !== 'undefined', idb = null, warned = false;
+
+  function normalize(p) {
+    if (!p || typeof p !== 'object') return null;
+    var out = {};
+    Object.keys(p).forEach(function (k) { if (p[k] && typeof p[k] === 'object') out[k] = p[k]; });
+    out.tasks = out.tasks || {}; out.checkpoints = out.checkpoints || {}; out.meta = out.meta || {};
+    return out;
+  }
+  function countRows(s) { var n = 0; Object.keys(s).forEach(function (k) { n += Object.keys(s[k] || {}).length; }); return n; }
+
+  // localStorage: sprawdzamy zapisem, bo samo istnienie obiektu nic nie znaczy w ramce z sandboxem
+  try {
+    localStorage.setItem(KEY + '.probe', '1');
+    localStorage.removeItem(KEY + '.probe');
+    canLS = true;
+  } catch (e) { canLS = false; }
+
+  if (canLS) {
     try {
       var raw = localStorage.getItem(KEY);
-      if (!raw) return;
-      var p = JSON.parse(raw);
-      if (p && typeof p === 'object') store = { tasks: p.tasks || {}, checkpoints: p.checkpoints || {}, meta: p.meta || {} };
+      if (raw) { var p = normalize(JSON.parse(raw)); if (p) store = p; }
     } catch (e) {}
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
-  load();
+
+  // IndexedDB: asynchroniczny zapas. Otwieramy od razu, dane dociągamy po starcie.
+  function openIDB() {
+    return new Promise(function (res, rej) {
+      if (!canIDB) return rej(new Error('brak indexedDB'));
+      var r;
+      try { r = indexedDB.open('adhd-board', 1); } catch (e) { return rej(e); }
+      r.onupgradeneeded = function () { try { r.result.createObjectStore('kv'); } catch (e) {} };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error || new Error('indexedDB odmówił')); };
+      r.onblocked = function () { rej(new Error('indexedDB zablokowany')); };
+    });
+  }
+  function idbPut(val) {
+    if (!idb) return Promise.reject(new Error('brak idb'));
+    return new Promise(function (res, rej) {
+      try {
+        var tx = idb.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(val, 'db');
+        tx.oncomplete = function () { res(); };
+        tx.onerror = function () { rej(tx.error); };
+      } catch (e) { rej(e); }
+    });
+  }
+  function idbGet() {
+    if (!idb) return Promise.reject(new Error('brak idb'));
+    return new Promise(function (res, rej) {
+      try {
+        var tx = idb.transaction('kv', 'readonly'), q = tx.objectStore('kv').get('db');
+        q.onsuccess = function () { res(q.result); };
+        q.onerror = function () { rej(q.error); };
+      } catch (e) { rej(e); }
+    });
+  }
+
+  var idbReady = openIDB().then(function (h) {
+    idb = h;
+    return idbGet().then(function (val) {
+      var p = normalize(val);
+      // dane z IndexedDB przyjmujemy, gdy localStorage nic nie dał (albo w ogóle nie działa)
+      if (p && countRows(p) > countRows(store)) { store = p; fireAll(); }
+      if (!canLS) setBanner(); // IndexedDB działa, więc zapis jest, tylko w innym miejscu
+    }).catch(function () {});
+  }).catch(function () { canIDB = false; setBanner(); });
+
+  var saveTimer = null;
+  function save() {
+    var json = null;
+    if (canLS) {
+      try { json = JSON.stringify(store); localStorage.setItem(KEY, json); }
+      catch (e) { canLS = false; setBanner(); } // np. pełny magazyn albo odcięty dostęp
+    }
+    if (canIDB) {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        idbReady.then(function () { return idbPut(JSON.parse(JSON.stringify(store))); })
+          .catch(function () { canIDB = false; setBanner(); });
+      }, 150);
+    }
+    if (!canLS && !canIDB) setBanner();
+  }
+
+  // ---- pasek ostrzegawczy: lepiej zobaczyć problem niż stracić dane po cichu ----
+  function el(tag, css, text) {
+    var e = document.createElement(tag);
+    if (css) e.setAttribute('style', css);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function exportData() {
+    var json = JSON.stringify(store, null, 2);
+    var name = 'adhd-board-' + new Date().toISOString().slice(0, 10) + '.json';
+    try {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    } catch (e) {
+      // pobieranie bywa zablokowane w ramce — wtedy dajemy tekst do skopiowania
+      var box = el('textarea', 'position:fixed;inset:5vh 5vw;z-index:2147483647;width:90vw;height:90vh;font:12px monospace;padding:12px');
+      box.value = json;
+      document.body.appendChild(box); box.select();
+      box.addEventListener('blur', function () { box.remove(); });
+    }
+  }
+  function importData(file) {
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var p = normalize(JSON.parse(String(r.result)));
+        if (!p) throw new Error('zły plik');
+        store = p; save(); fireAll();
+        alert('Wczytano kopię: ' + countRows(store) + ' rekordów.');
+      } catch (e) { alert('Nie udało się wczytać pliku: ' + (e && e.message ? e.message : 'zły format')); }
+    };
+    r.readAsText(file);
+  }
+  function setBanner() {
+    if (canLS || canIDB || warned) return;
+    warned = true;
+    var put = function () {
+      if (!document.body || document.getElementById('adhd-nosave')) return;
+      var bar = el('div', 'position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#AE2E24;color:#fff;font:600 14px/1.4 system-ui,sans-serif;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;box-shadow:0 2px 8px rgba(0,0,0,.3)');
+      bar.id = 'adhd-nosave';
+      bar.appendChild(el('span', 'flex:1 1 280px;min-width:0',
+        embedded
+          ? 'Ta strona jest osadzona w ramce, która blokuje zapis. Zadania znikną po odświeżeniu.'
+          : 'Przeglądarka blokuje zapis danych (tryb prywatny albo zablokowane dane witryn). Zadania znikną po odświeżeniu.'));
+      if (embedded) {
+        var a = el('a', 'background:#fff;color:#AE2E24;border-radius:4px;padding:5px 10px;text-decoration:none;white-space:nowrap', 'Otwórz w osobnej karcie');
+        a.href = location.href; a.target = '_blank'; a.rel = 'noopener';
+        bar.appendChild(a);
+      }
+      var b = el('button', 'background:transparent;color:#fff;border:1px solid #fff;border-radius:4px;padding:5px 10px;cursor:pointer;white-space:nowrap;font:inherit', 'Zapisz kopię do pliku');
+      b.onclick = exportData;
+      bar.appendChild(b);
+      var x = el('button', 'background:transparent;color:#fff;border:0;font:700 18px system-ui;cursor:pointer;padding:0 4px', '×');
+      x.title = 'Ukryj';
+      x.onclick = function () { bar.remove(); };
+      bar.appendChild(x);
+      document.body.appendChild(bar);
+      document.body.style.paddingTop = '52px';
+    };
+    if (document.body) put(); else document.addEventListener('DOMContentLoaded', put);
+  }
+
+  // ---- stały przycisk kopii zapasowej: dane nigdy nie są uwięzione w jednej przeglądarce ----
+  function backupButton() {
+    if (!document.body || document.getElementById('adhd-backup')) return;
+    var wrap = el('div', 'position:fixed;right:10px;bottom:10px;z-index:2147483000;display:flex;gap:6px;opacity:.55');
+    wrap.id = 'adhd-backup';
+    wrap.onmouseenter = function () { wrap.style.opacity = '1'; };
+    wrap.onmouseleave = function () { wrap.style.opacity = '.55'; };
+    var mk = function (label, title) {
+      return el('button', 'background:#22272B;color:#DEE4EA;border:1px solid #38414A;border-radius:14px;padding:4px 10px;font:600 12px system-ui,sans-serif;cursor:pointer', label);
+    };
+    var e = mk('⤓ Kopia'); e.title = 'Zapisz wszystkie dane do pliku JSON'; e.onclick = exportData;
+    var i = mk('⤒ Wczytaj'); i.title = 'Wczytaj dane z pliku JSON (zastąpi obecne)';
+    var inp = el('input', 'display:none'); inp.type = 'file'; inp.accept = 'application/json,.json';
+    inp.onchange = function () { if (inp.files && inp.files[0] && confirm('Wczytanie kopii zastąpi wszystkie obecne dane. Kontynuować?')) importData(inp.files[0]); inp.value = ''; };
+    i.onclick = function () { inp.click(); };
+    wrap.appendChild(e); wrap.appendChild(i); wrap.appendChild(inp);
+    document.body.appendChild(wrap);
+  }
+  if (document.body) backupButton(); else document.addEventListener('DOMContentLoaded', backupButton);
 
   function clone(o) { return o === undefined ? undefined : JSON.parse(JSON.stringify(o)); }
   function colOf(n) { store[n] = store[n] || {}; return store[n]; }
@@ -69,7 +238,10 @@
     docSubs.slice().forEach(function (s) { try { s.cb(snapDoc(s.c, s.id)); } catch (e) {} });
   }
   // ta sama tablica otwarta w drugiej karcie tej przeglądarki
-  window.addEventListener('storage', function (e) { if (e.key === KEY) { load(); fireAll(); } });
+  window.addEventListener('storage', function (e) {
+    if (e.key !== KEY || !canLS) return;
+    try { var p = normalize(JSON.parse(e.newValue || 'null')); if (p) { store = p; fireAll(); } } catch (_) {}
+  });
 
   function docRef(c, id) {
     return {
@@ -126,6 +298,9 @@
     },
     localOnly: true,
   };
+  // podgląd stanu zapisu do diagnozy: adhdStorage() w konsoli
+  window.adhdStorage = function () { return { localStorage: canLS, indexedDB: canIDB, embedded: embedded, rows: countRows(store) }; };
+  window.adhdExport = exportData;
 })();
 </script>
 </head>
@@ -247,6 +422,31 @@ button { cursor: pointer; }
 .toolbar select { border: 2px solid var(--line); background: var(--surface); border-radius: 4px; padding: 4px 8px; min-height: 36px; flex: 0 1 280px; min-width: 0; }
 .notice { margin-top: 12px; padding: 10px 14px; border-radius: 4px; background: var(--grey-soft); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 .notice.warn { background: var(--red-soft); color: var(--red-text); }
+
+/* Rytuały dnia (Strażnik): Daily → Trójka → Checkpoint → Retro; alarm, gdy minie godzina */
+.rit { margin-top: 16px; background: var(--surface); border-radius: 8px; box-shadow: var(--shadow-2); padding: 10px 14px 12px; display: grid; gap: 8px; }
+.rit-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); font-size: 12px; min-height: 24px; }
+.rit-head .sp { flex: 1 1 auto; }
+.rit-head .btn { min-height: 26px; padding: 2px 8px; font-size: 12px; }
+.rit-streak { font-weight: 700; color: var(--ink-2); }
+.rit-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.rit-item { display: flex; align-items: center; gap: 9px; text-align: left; border: 2px solid var(--line); background: var(--raised); color: var(--ink); border-radius: 6px; padding: 8px 10px; min-height: 54px; font: inherit; cursor: pointer; min-width: 0; }
+button.rit-item:hover { background: var(--hover); }
+div.rit-item { cursor: default; }
+.rit-item .chk { margin-top: 0; }
+.rit-item .t { display: grid; gap: 2px; min-width: 0; }
+.rit-item .t b { font-size: 13px; line-height: 1.2; }
+.rit-item .t span { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rit-item.done { border-color: var(--green); }
+.rit-item.done .t span { color: var(--green-text); }
+.rit-item.due { border-color: var(--orange); }
+.rit-item.due .t span { color: var(--yellow-text); }
+.rit-item.late { border-color: var(--red); background: var(--red-soft); color: var(--red-text); }
+.rit-item.late .t span { color: var(--red-text); }
+.rit-item.late .chk { border-color: var(--red); animation: rit-pulse 1.2s ease-in-out infinite; }
+@keyframes rit-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .rit-item.late .chk { animation: none; } }
+@media (max-width: 760px) { .rit-row { grid-template-columns: 1fr 1fr; } .rit { padding: 10px 12px; } .rit-item { padding: 8px; gap: 7px; } .rit-item .t span { white-space: normal; overflow: visible; line-height: 1.25; } }
 
 /* TERAZ issue card */
 .now { margin-top: 16px; background: var(--surface); border-radius: 8px; box-shadow: var(--shadow-2); border-top: 3px solid var(--brand); }
@@ -638,6 +838,61 @@ button.chk:hover { background: color-mix(in srgb, var(--pc, var(--grey)) 18%, tr
 .bill-scan p { margin: 0; color: var(--muted); }
 .bill-prog { font-size: 13px; color: var(--muted); }
 
+/* Plan dnia: okna z godzinami, zadania wpadają tylko tam, gdzie pasuje kontekst i czas */
+.plan { display: grid; gap: 14px; padding-block: 16px 40px; max-width: 980px; }
+.pbar-top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.pbar-top .seg.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 200px; }
+.phead { font-weight: 600; color: var(--ink-2); }
+.pbar-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.pcap { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; background: var(--column); border-radius: 8px; padding: 10px 14px; border-left: 4px solid var(--green); }
+.pcap.over { border-left-color: var(--red); background: var(--red-soft); }
+.pcap-n { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.pcap-n b { font-size: 18px; color: var(--ink); font-weight: 700; }
+.pcap.over .pcap-n b { color: var(--red-text); }
+.pcap-msg { flex: 1 1 240px; min-width: 0; font-size: 13px; color: var(--ink-2); }
+.pcap.over .pcap-msg { color: var(--red-text); font-weight: 600; }
+.preal { margin: 0; font-size: 13px; color: var(--muted); }
+.preal b { color: var(--ink); }
+.pwins { display: grid; gap: 10px; }
+.pwin { background: var(--raised); border-radius: 8px; box-shadow: var(--shadow-1); border-left: 4px solid var(--brand); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+.pwin.k-drive { border-left-color: var(--purple); }
+.pwin.k-out { border-left-color: var(--orange); }
+.pwin.k-busy { border-left-color: var(--grey); opacity: .78; }
+.pwin.k-home { border-left-color: var(--green); }
+.pwin-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.pwin-time { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.pwin-head h3 { margin: 0; font-size: 15px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pwin-cap { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.pwin-acts { margin-left: auto; display: flex; gap: 2px; }
+.pwin .pbar { height: 6px; }
+.pwin-empty { margin: 0; font-size: 13px; color: var(--muted); }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.prow { display: flex; gap: 10px; align-items: flex-start; padding: 7px 8px; border-radius: 6px; background: var(--column); min-width: 0; }
+.prow.pin { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 40%, transparent); }
+.prow .t { flex: 1 1 auto; min-width: 0; }
+.prow .lozs { margin-left: 0; }
+.pacts { display: flex; gap: 2px; align-items: center; flex: none; }
+.pleft summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+.pleft ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.pleft li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; min-width: 0; }
+.pleft .why { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 760px) { .pbar-acts { margin-left: 0; width: 100%; } .pcap-n b { font-size: 16px; } }
+
+/* Pasek planu na Tablicy — ten sam plan, co w zakładce Plan dnia, tylko w jednej linii */
+.plb { margin-top: 12px; background: var(--column); border-radius: 8px; border-left: 4px solid var(--brand); padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.plb > b { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); white-space: nowrap; }
+.plb-slot { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); border-radius: 14px; padding: 3px 10px 3px 8px; box-shadow: var(--shadow-1); min-width: 0; max-width: 100%; border: 0; font: inherit; color: var(--ink); text-align: left; }
+button.plb-slot:hover { background: var(--hover); }
+.plb-slot time { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+.plb-slot span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.plb-slot.is-doing { box-shadow: inset 0 0 0 2px var(--brand); }
+.plb-slot.is-done time, .plb-slot.is-done span { color: var(--muted); }
+.plb-slot.is-done span { text-decoration: line-through; }
+.plb .sp { flex: 1 1 auto; }
+.plb .btn { min-height: 28px; padding: 3px 10px; font-size: 13px; }
+.plb-none { font-size: 13px; color: var(--muted); }
+@media (max-width: 760px) { .plb-slot span { max-width: 46vw; } }
+
 /* Zakupy: Keep-style lists kept in a Google Sheet (one sheet tab = one list) */
 .shop { max-width: 680px; margin: 16px auto 40px; display: grid; gap: 12px; }
 .shop-card { background: var(--raised); border-radius: 10px; box-shadow: var(--shadow-2); border-top: 4px solid var(--keep); padding: 14px 16px 10px; display: grid; gap: 12px; min-width: 0; }
@@ -733,6 +988,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     <nav class="tabs" role="tablist" aria-label="Widoki">
       <button role="tab" id="tab-backlog" data-action="view" data-view="backlog" aria-selected="false">Backlog <span class="n" id="n-backlog"></span></button>
       <button role="tab" id="tab-board" data-action="view" data-view="board" aria-selected="true">Tablica</button>
+      <button role="tab" id="tab-plan" data-action="view" data-view="plan">Plan dnia</button>
       <button role="tab" id="tab-shop" data-action="view" data-view="shop" aria-selected="false">Zakupy <span class="n" id="n-shop" hidden></span></button>
       <button role="tab" id="tab-epics" data-action="view" data-view="epics" aria-selected="false">Epiki</button>
       <button role="tab" id="tab-cps" data-action="view" data-view="cps" aria-selected="false">Checkpointy <span class="n" id="n-cps"></span></button>
@@ -793,6 +1049,8 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   </div>
   <div id="notices"></div>
   <section id="view-board">
+    <div id="rituals"></div>
+    <div id="planbar"></div>
     <div id="now"></div>
     <div class="colpick" id="colpick" role="tablist" aria-label="Kolumna">
       <button id="col-all" data-action="col" data-col="all" aria-selected="true">Wszystko</button>
@@ -802,6 +1060,9 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       <button id="col-done" data-action="col" data-col="done" aria-selected="false">Gotowe</button>
     </div>
     <div class="board" id="board" data-col="todo"></div>
+  </section>
+  <section id="view-plan" hidden>
+    <div class="plan" id="plan"></div>
   </section>
   <section id="view-shop" hidden>
     <div class="shop" id="shop"></div>
@@ -841,8 +1102,8 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   // where an interrupted task goes, in the "returns to …" sentence of the checkpoint dialog
   const STATUS_DEST = { backlog: 'Backlogu', todo: 'Do zrobienia', paused: 'Wstrzymanych' };
   const isClosed = (t) => t.status === 'done' || t.status === 'cancelled';
-  const VIEW_TITLE = { board: 'Tablica', shop: 'Zakupy', backlog: 'Backlog', epics: 'Epiki', cps: 'Checkpointy', mail: 'Poczta' };
-  const VIEWS = ['board', 'shop', 'backlog', 'epics', 'cps', 'mail'];
+  const VIEW_TITLE = { board: 'Tablica', plan: 'Plan dnia', shop: 'Zakupy', backlog: 'Backlog', epics: 'Epiki', cps: 'Checkpointy', mail: 'Poczta' };
+  const VIEWS = ['board', 'plan', 'shop', 'backlog', 'epics', 'cps', 'mail'];
   // views that draw themselves from a connector; task search and epic filter do not apply there
   const OWN_VIEWS = ['shop', 'mail'];
   // One colour per epic (group number); text uses a mix with ink so it reads in both themes
@@ -908,6 +1169,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
 
   // ---------- state ----------
   const state = {
+    plans: {}, planIdx: {}, planOrder: [], planCount: 0, planDone: 0, planWins: 0,
     db: null, canWrite: true, phase: 'connecting',
     tasks: [], checkpoints: [], groups: {}, groupsShort: {}, sample: null,
     view: 'board', col: 'all', bills: [], q: '', grp: 'all', showAllDone: false, showCancelled: false,
@@ -915,6 +1177,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     timer: null, // { taskId, endAt, left, total } kept in this browser only
     open: new Set(), // expanded epics and tasks in the Epiki tree, kept in this browser only
     assets: null, mcp: null, imgLimits: null, imp: null, // files, connectors, image limits for Claude, import dialog state
+    rituals: {}, ritSig: '', // rytuały dnia: dokument na dzień (rituals/RRRR-MM-DD) i podpis ostatnio narysowanych stanów
   };
   function loadOpen() { try { state.open = new Set(JSON.parse(localStorage.getItem('teraz.open') || '[]')); } catch (_) { state.open = new Set(); } }
   function saveOpen() { try { localStorage.setItem('teraz.open', JSON.stringify([...state.open].slice(-300))); } catch (_) {} }
@@ -1085,6 +1348,107 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     return String(a.title || '').localeCompare(String(b.title || ''), 'pl');
   }
   const doingTasks = () => state.tasks.filter((t) => t.status === 'doing');
+
+  // ---------- Rytuały dnia (Strażnik) ----------
+  // fire: o której Strażnik pisze; by: do kiedy rytuał ma być odhaczony (czas lokalny tego urządzenia).
+  // Trójka liczy się sama z kart z terminem na dziś; resztę odhacza Wojtek, gdy odpisze Strażnikowi.
+  const RITUALS = [
+    { key: 'daily', name: 'Daily', fire: '07:47', by: '09:30', hint: 'przeczytaj poranny plan i odpisz „zapisz”' },
+    { key: 'trio', name: 'Trójka', fire: '07:47', by: '10:00', hint: 'od 1 do 3 zadań w Planie dnia (WIP 3)', auto: true },
+    { key: 'checkpoint', name: 'Checkpoint', fire: '10:47', by: '17:30', hint: 'checkpointy 10:47, 13:47 i 16:47: przeczytaj i zrób krok TERAZ' },
+    { key: 'retro', name: 'Retro', fire: '20:13', by: '21:30', hint: 'wieczorna retrospektywa i trójka na jutro' },
+  ];
+  const RIT_NOTIFIED_KEY = 'teraz.rit.notified';
+  const minutesOf = (hm) => { const [h, m] = String(hm).split(':').map(Number); return h * 60 + m; };
+  const ritDoc = (day) => state.rituals[day] || null;
+  // stan jednego rytuału na dany dzień: done | late | due | wait
+  function ritStatus(r, day) {
+    const today = isoDay(state.now) === day;
+    const nowMin = today ? state.now.getHours() * 60 + state.now.getMinutes() : 24 * 60;
+    const phase = nowMin >= minutesOf(r.by) ? 'late' : nowMin >= minutesOf(r.fire) ? 'due' : 'wait';
+    if (r.auto) {
+      // dziś: dokładnie to, co pokazuje Plan dnia; dni minione liczymy po terminach, bo okien już nie ma
+      const n = today ? state.planCount : state.tasks.filter((t) => t.status !== 'cancelled' && dueKey(t) === day).length;
+      const suffix = today && state.planDone ? ` · ${state.planDone} zrobione` : '';
+      if (n > PLAN_LIMIT) return { state: 'late', label: `${n}/${PLAN_LIMIT} · zdejmij ${n - PLAN_LIMIT}` };
+      if (n >= 1) return { state: 'done', label: `${n}/${PLAN_LIMIT}${suffix || (today ? ' w planie' : '')}` };
+      if (today && !state.planWins) return { state: phase, label: 'brak okien · ułóż plan dnia' };
+      return { state: phase, label: phase === 'wait' ? `${r.fire} · do ${r.by}` : `0/${PLAN_LIMIT} · wybierz do ${r.by}` };
+    }
+    const doc = ritDoc(day), at = doc && doc[r.key];
+    if (at) return { state: 'done', label: `odhaczone ${fmtStamp(at).slice(11)}` };
+    if (phase === 'late') return { state: 'late', label: `po ${r.by} · czeka` };
+    if (phase === 'due') return { state: 'due', label: `odhacz do ${r.by}` };
+    return { state: 'wait', label: `${r.fire} · do ${r.by}` };
+  }
+  const ritDayComplete = (day) => RITUALS.every((r) => ritStatus(r, day).state === 'done');
+  // dni z rzędu z kompletem rytuałów; dziś liczy się, gdy komplet już jest
+  function ritStreak() {
+    let n = 0;
+    const d = new Date(state.now);
+    if (ritDayComplete(isoDay(d))) n++;
+    for (let i = 0; i < 366; i++) {
+      d.setDate(d.getDate() - 1);
+      if (ritDayComplete(isoDay(d))) n++; else break;
+    }
+    return n;
+  }
+  function ritNotified() {
+    const day = isoDay(state.now);
+    try { const v = JSON.parse(localStorage.getItem(RIT_NOTIFIED_KEY) || 'null'); if (v && v.day === day && Array.isArray(v.keys)) return v; } catch (_) {}
+    return { day, keys: [] };
+  }
+  // co 30 s: tytuł karty z liczbą zaległych rytuałów, powiadomienie na tym urządzeniu, gdy któryś właśnie minął, odświeżenie paska
+  function ritTick() {
+    if (state.phase !== 'ready') return;
+    const day = isoDay(state.now);
+    const st = RITUALS.map((r) => Object.assign({ r }, ritStatus(r, day)));
+    const late = st.filter((s) => s.state === 'late');
+    document.title = (late.length ? `(${late.length}) ` : '') + 'ADHD board';
+    if ('Notification' in window && Notification.permission === 'granted') {
+      const seen = ritNotified();
+      const fresh = late.filter((s) => !seen.keys.includes(s.r.key));
+      if (fresh.length) {
+        try { new Notification('ADHD board · rytuał czeka', { body: fresh.map((s) => `${s.r.name}: ${s.label}`).join('\n'), tag: 'rit-' + day, renotify: true }); } catch (_) {}
+        seen.keys.push(...fresh.map((s) => s.r.key));
+        try { localStorage.setItem(RIT_NOTIFIED_KEY, JSON.stringify(seen)); } catch (_) {}
+      }
+    }
+    const sig = st.map((s) => s.state).join(',');
+    if (sig !== state.ritSig) { state.ritSig = sig; if (state.view === 'board') renderRituals(); }
+  }
+  function renderRituals() {
+    const el = $('rituals');
+    if (!el) return;
+    if (state.phase !== 'ready') { el.innerHTML = ''; return; }
+    const day = isoDay(state.now), streak = ritStreak();
+    const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    const bell = perm === 'default'
+      ? `<button class="btn ghost" type="button" data-action="rit-bell" title="Powiadomienie na tym urządzeniu, gdy minie godzina rytuału (działa, póki tablica jest otwarta)">🔔 Włącz alarmy</button>`
+      : perm === 'granted' ? '<span title="Alarmy włączone na tym urządzeniu: powiadomienie, gdy minie godzina rytuału">🔔 alarmy wł.</span>' : '';
+    state.ritSig = RITUALS.map((r) => ritStatus(r, day).state).join(',');
+    el.innerHTML = `<section class="rit" aria-label="Rytuały dnia">
+      <div class="rit-head"><span class="loz bold-blue">Rytuały</span><span>Odhacz, gdy odpiszesz Strażnikowi. Trójka liczy się sama.</span><span class="sp"></span>${streak ? `<span class="rit-streak" title="Dni z rzędu z kompletem czterech rytuałów">🔥 ${streak} ${plural(streak, 'dzień', 'dni', 'dni')} z rzędu</span>` : ''}${bell}</div>
+      <div class="rit-row">${RITUALS.map((r) => {
+        const s = ritStatus(r, day), can = state.canWrite && !r.auto, tag = can || r.auto ? 'button' : 'div';
+        const attrs = r.auto
+          ? `type="button" data-action="view" data-view="plan" title="Otwórz Plan dnia · ${esc(r.hint)}"`
+          : can
+            ? `type="button" data-action="rit-toggle" data-key="${r.key}" aria-pressed="${s.state === 'done'}" title="${s.state === 'done' ? 'Odznacz' : 'Odhacz'} · ${esc(r.hint)}"`
+            : `title="${esc(r.hint)}"`;
+        return `<${tag} class="rit-item ${s.state}" ${attrs}><span class="chk ${s.state === 'done' ? 'on' : ''}" aria-hidden="true">${ic('check')}</span><span class="t"><b>${r.name}</b><span>${esc(s.label)}</span></span></${tag}>`;
+      }).join('')}</div>
+    </section>`;
+  }
+  async function ritToggle(key) {
+    const r = RITUALS.find((x) => x.key === key);
+    if (!r || r.auto || !state.canWrite || !state.db) return;
+    const day = isoDay(state.now), doc = ritDoc(day), on = !(doc && doc[key]);
+    const stamp = nowIso(), patch = { [key]: on ? stamp : null, updatedAt: stamp };
+    await guarded(() => enqueue('rituals/' + day, () => withRetry(() => (doc
+      ? state.db.doc('rituals/' + day).update(patch)
+      : state.db.doc('rituals/' + day).set(Object.assign({ day }, patch))))), on ? `${r.name}: odhaczone.` : `${r.name}: odznaczone.`);
+  }
 
   // ---------- db writes (one write at a time per document) ----------
   const queues = {};
@@ -1286,6 +1650,11 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     if (di) out.push(`<span class="loz ${di.cls}" title="Termin: ${esc(t.due)}">${ic('cal')}${esc(di.text)}</span>`);
     else if (onBoard) out.push(`<span class="loz" title="Brak terminu">${ic('cal')}bez terminu</span>`);
     if (t.needsOffice) out.push(`<span class="loz ${office(state.now).open ? 'blue' : ''}" title="Wymaga urzędu lub dnia roboczego">${ic('office')}urząd</span>`);
+    if (t.ctx && CTX[t.ctx]) out.push(`<span class="loz" title="Kontekst: ${esc(CTX[t.ctx].hint)}">${esc(ctxLabel(t.ctx))}</span>`);
+    const p = inPlan(t);
+    if (p) out.push(`<span class="loz bold-blue" title="W planie dnia: ${esc(p.label)} ${esc(p.from)}–${esc(p.to)}">${ic('cal')}${esc(p.from)}</span>`);
+    const age = ageDays(t);
+    if (onBoard && age >= 10) out.push(`<span class="loz yellow" title="Wiek zadania: ile dni sprawa wisi otwarta (miara z Kanbana)">wisi ${age} dni</span>`);
     return out.length ? `<div class="lozs">${out.join('')}</div>` : '';
   }
   function checkbox(t) {
@@ -1427,10 +1796,11 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   function renderNow() {
     const t = doingTasks()[0];
     if (!t) {
-      const picks = state.tasks.filter((x) => x.status === 'todo').sort(cmpOpen).slice(0, 3);
+      const fromPlan = planOpenTasks().filter((x) => x.status !== 'doing');
+      const picks = fromPlan.length ? fromPlan.slice(0, 3) : state.tasks.filter((x) => x.status === 'todo').sort(cmpOpen).slice(0, 3);
       $('now').innerHTML = `<section class="now" aria-label="TERAZ"><div class="now-in">
         <div class="now-top"><span class="loz bold-blue">Teraz</span><span>nic nie jest w toku</span></div>
-        <h1>${picks.length ? 'Co robisz teraz? Wybierz jedno.' : 'Nic nie czeka na tablicy.'}</h1>
+        <h1>${picks.length ? (fromPlan.length ? 'Z planu na dziś. Wybierz jedno.' : 'Co robisz teraz? Wybierz jedno.') : 'Nic nie czeka na tablicy.'}</h1>
         ${picks.length ? `<div class="pick-list">${picks.map((p) => `<div class="pick">
             ${typeIcon(p.quadrant)}
             <div class="t"><b>${esc(p.title)}</b><div class="lozs" style="margin:3px 0">${lozenges(p).replace(/^<div class="lozs">|<\/div>$/g, '')}</div><span>${esc(p.blocked && p.unblockStep ? 'Odblokuj: ' + p.unblockStep : currentStep(p))}</span></div>
@@ -1697,11 +2067,14 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   function renderState() {
     if (state.phase === 'connecting') {
       $('now').innerHTML = '';
+      $('rituals').innerHTML = '';
+      $('planbar').innerHTML = '';
       $('board').innerHTML = '<div class="state"><h2>Łączę z bazą…</h2><p>Za chwilę pojawią się Twoje zadania.</p></div>';
       return true;
     }
     if (state.phase === 'nodb') {
       $('now').innerHTML = '';
+      $('rituals').innerHTML = '';
       $('board').innerHTML = '<div class="state"><h2>Baza jest niedostępna w tym widoku</h2><p>Tablica zapisuje zadania w bazie tego artefaktu. Otwórz ją w claude.ai po zalogowaniu.</p></div>';
       $('btn-new').hidden = true;
       $('btn-import').hidden = true;
@@ -1727,14 +2100,16 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       if (l < nav.scrollLeft || r > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = Math.max(0, l - 24);
     }
     // task search and group filter do not apply to mail and shopping
-    const own = OWN_VIEWS.includes(state.view);
+    const own = OWN_VIEWS.includes(state.view) || state.view === 'plan';
     $('q').parentElement.hidden = own;
     $('grp').hidden = own;
     // these panes render themselves on their own events; a task snapshot must not wipe a half-written reply or item
     if (state.view === 'mail') { $('notices').innerHTML = ''; renderMailView(); return; }
     if (state.view === 'shop') { $('notices').innerHTML = ''; if (!$('shop').hasChildNodes()) renderShop(); return; }
     if (renderState()) return;
+    refreshPlanIndex();
     renderNotices();
+    if (state.view === 'board') { renderRituals(); renderPlanBar(); } else { $('rituals').innerHTML = ''; $('planbar').innerHTML = ''; }
     if (state.view === 'board') {
       if (!state.tasks.length) {
         $('now').innerHTML = '';
@@ -1743,9 +2118,306 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       }
       renderNow();
       renderBoard();
-    } else if (state.view === 'backlog') renderMatrix();
+    } else if (state.view === 'plan') renderPlan();
+    else if (state.view === 'backlog') renderMatrix();
     else if (state.view === 'epics') renderEpics();
     else renderCheckpoints();
+  }
+
+  // ---------- Plan dnia: okna, konteksty, uczciwa pojemność ----------
+  // Scrum planuje sprint z prędkości zespołu, Kanban liczy przepustowość. Jednoosobowo decyduje co innego:
+  // ile masz wolnych minut i GDZIE jesteś. Okno dnia ma godziny i rodzaj, zadanie ma minuty (estMin) i kontekst (ctx).
+  // Zadanie wchodzi do okna tylko wtedy, gdy kontekst pasuje i mieści się w minutach. Limit dnia to WIP 3.
+  const CTXS = [
+    { k: 'tel', name: 'Telefon', emo: '📞', hint: 'telefony, przelewy, aplikacje' },
+    { k: 'komp', name: 'Komputer', emo: '💻', hint: 'pisanie, arkusze, kod' },
+    { k: 'dom', name: 'W domu', emo: '🏠', hint: 'fizyczne, na miejscu' },
+    { k: 'miasto', name: 'W mieście', emo: '🚶', hint: 'urząd, sklep, odbiór' },
+    { k: 'auto', name: 'W drodze', emo: '🚗', hint: 'tylko głosem, bez rąk' },
+    { k: 'ludzie', name: 'Z kimś', emo: '👥', hint: 'potrzebna druga osoba' },
+  ];
+  const CTX = {};
+  CTXS.forEach((c) => { CTX[c.k] = c; });
+  const ctxLabel = (k) => (CTX[k] ? `${CTX[k].emo} ${CTX[k].name}` : 'Wszędzie');
+
+  const WIN_KINDS = [
+    { k: 'free', name: 'Wolne okno', allow: null, note: 'wchodzi wszystko' },
+    { k: 'home', name: 'W domu', allow: ['dom', 'komp', 'tel'], note: 'bez wychodzenia' },
+    { k: 'drive', name: 'Dojazd', allow: ['auto'], strict: true, note: 'tylko głosem: rozmowa hands-free, dyktowanie' },
+    { k: 'out', name: 'Na mieście', allow: ['miasto', 'tel', 'auto', 'ludzie'], note: 'jesteś poza domem' },
+    { k: 'busy', name: 'Zajęte', allow: [], note: 'spotkanie, sen — nic nie planujemy' },
+  ];
+  const WK = {};
+  WIN_KINDS.forEach((w) => { WK[w.k] = w; });
+  const wkOf = (w) => WK[w && w.kind] || WK.free;
+  function winAllows(w, t) {
+    const kind = wkOf(w);
+    if (kind.strict) return !!t.ctx && kind.allow.indexOf(t.ctx) >= 0;
+    if (kind.allow === null) return true;
+    if (!kind.allow.length) return false;
+    return !t.ctx || kind.allow.indexOf(t.ctx) >= 0;
+  }
+  const PLAN_LIMIT = 3; // WIP 3: maksymalnie trzy zadania na dzień
+  const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); if (!m) return null; const v = Number(m[1]) * 60 + Number(m[2]); return v >= 0 && v <= 1440 ? v : null; };
+  const winLen = (w) => { const a = toMin(w.from), b = toMin(w.to); return a == null || b == null ? 0 : Math.max(0, b - a); };
+  const estOf = (t) => Math.max(5, Math.min(480, Number(t.estMin) || 15));
+  const minLabel = (n) => (n >= 60 ? `${Math.floor(n / 60)} h${n % 60 ? ` ${n % 60} min` : ''}` : `${n} min`);
+  const planState = { day: 0 }; // 0 = dziś, 1 = jutro
+
+  function planDayIso(off) { const d = new Date(state.now); d.setDate(d.getDate() + (off || 0)); return isoDay(d); }
+  const planDoc = (day) => state.plans[day] || { day, windows: [] };
+  const planWins = (day) => (planDoc(day).windows || []).slice().sort((a, b) => (toMin(a.from) ?? 0) - (toMin(b.from) ?? 0));
+  const newWinId = () => 'w' + Math.random().toString(36).slice(2, 9);
+  const dayIsWorkday = (day) => isWorkday(new Date(day + 'T12:00:00'));
+
+  function savePlan(day, windows) {
+    const body = { day, windows, updatedAt: nowIso() };
+    return guarded(() => enqueue('plan/' + day, () => withRetry(() => (state.plans[day]
+      ? state.db.doc('plan/' + day).update(body)
+      : state.db.doc('plan/' + day).set(body)))), null);
+  }
+
+  // Wiek zadania (Kanban: work item age) — ile dni sprawa wisi otwarta
+  function ageDays(t) {
+    const src = t.startedAt || t.createdAt;
+    if (!src) return 0;
+    const d = new Date(src);
+    return isNaN(d) ? 0 : Math.max(0, dayDiff(isoDay(state.now), isoDay(d)));
+  }
+  // Przepustowość (Kanban: throughput) — ile zadań realnie kończysz dziennie
+  function throughput(days) {
+    const n = days || 14;
+    const from = new Date(state.now); from.setDate(from.getDate() - n);
+    const done = state.tasks.filter((t) => t.status === 'done' && t.completedAt && new Date(t.completedAt) >= from).length;
+    return { done, days: n, perDay: done / n };
+  }
+
+  // Rozkład dnia: najpierw zadania przypięte ręcznie, potem automat dobiera resztę do limitu WIP 3
+  function planLayout(day) {
+    const wins = planWins(day);
+    const pinned = new Set();
+    wins.forEach((w) => (w.taskIds || []).forEach((id) => pinned.add(id)));
+    const officeDay = dayIsWorkday(day);
+    // zamknięte dziś liczą się do trójki — inaczej po skończeniu zadania automat dobierałby kolejne bez końca
+    const closedToday = state.tasks.filter((t) => isClosed(t) && isoDay(new Date(t.completedAt || t.cancelledAt || 0)) === day);
+    const open = state.tasks.filter((t) => !isClosed(t) && t.status !== 'backlog');
+    const rows = wins.map((w) => {
+      const items = (w.taskIds || []).map(byId).filter(Boolean).filter((t) => !isClosed(t)).map((t) => ({ t, pinned: true }));
+      return { w, items, used: items.reduce((n, x) => n + estOf(x.t), 0), free: winLen(w) };
+    });
+    let count = closedToday.length + rows.reduce((n, r) => n + r.items.length, 0);
+    const left = [];
+    open.filter((t) => !pinned.has(t.id)).sort(cmpOpen).forEach((t) => {
+      if (count >= PLAN_LIMIT) { left.push({ t, why: 'limit' }); return; }
+      if (t.needsOffice && !officeDay) { left.push({ t, why: 'urzad' }); return; }
+      // najwcześniejsze pasujące okno wygrywa; przy równym starcie to węższe (bardziej konkretne miejsce)
+      const spec = (r) => { const a = wkOf(r.w).allow; return a === null ? 99 : a.length; };
+      const fits = rows.filter((r) => winAllows(r.w, t)).sort((a, b) => (toMin(a.w.from) - toMin(b.w.from)) || (spec(a) - spec(b)));
+      if (!fits.length) { left.push({ t, why: 'kontekst' }); return; }
+      const r = fits.find((x) => x.used + estOf(t) <= x.free);
+      if (!r) { left.push({ t, why: 'czas' }); return; }
+      r.items.push({ t, pinned: false });
+      r.used += estOf(t);
+      count += 1;
+    });
+    const freeMin = rows.filter((r) => wkOf(r.w).k !== 'busy').reduce((n, r) => n + r.free, 0);
+    const planned = rows.reduce((n, r) => n + r.used, 0);
+    return { rows, left, count, freeMin, planned, officeDay, closedToday };
+  }
+
+  // Pasek planu na Tablicy: te same zadania i te same godziny, co w zakładce Plan dnia
+  function renderPlanBar() {
+    const el = $('planbar');
+    if (!el) return;
+    if (state.phase !== 'ready') { el.innerHTML = ''; return; }
+    const day = isoDay(state.now);
+    const L = planLayout(day);
+    const slots = [];
+    L.closedToday.forEach((t) => slots.push(`<span class="plb-slot is-done" title="Zrobione dziś"><time>${ic('check')}</time><span>${esc(t.title || '')}</span></span>`));
+    L.rows.forEach((r) => r.items.forEach((x) => slots.push(
+      `<button type="button" class="plb-slot ${x.t.status === 'doing' ? 'is-doing' : ''}" data-action="edit" data-id="${esc(x.t.id)}" title="${esc(r.w.label || wkOf(r.w).name)} ${esc(r.w.from)}–${esc(r.w.to)}"><time>${esc(r.w.from)}</time><span>${esc(x.t.title || '')}</span></button>`)));
+    el.innerHTML = `<section class="plb" aria-label="Plan na dziś">
+      <b>Plan na dziś</b>
+      ${slots.length ? slots.join('') : `<span class="plb-none">${L.rows.length ? 'Żadne zadanie nie pasuje do dzisiejszych okien.' : 'Nie masz okien na dziś — bez nich plan jest życzeniem.'}</span>`}
+      <span class="sp"></span>
+      <span class="plb-none">${esc(String(L.count))}/${PLAN_LIMIT}</span>
+      <button class="btn" data-action="view" data-view="plan">${ic('cal')}Plan dnia</button>
+    </section>`;
+  }
+
+  // Jedno źródło prawdy: co jest w dzisiejszym planie. Czyta to Plan dnia, Tablica, karta TERAZ i rytuał Trójka.
+  function refreshPlanIndex() {
+    const day = isoDay(state.now);
+    const L = planLayout(day);
+    const idx = {}, order = [];
+    L.rows.forEach((r) => r.items.forEach((x) => { idx[x.t.id] = { from: r.w.from, to: r.w.to, label: r.w.label || wkOf(r.w).name, pinned: x.pinned }; order.push(x.t.id); }));
+    state.planIdx = idx;
+    state.planOrder = order;
+    state.planCount = L.count;
+    state.planDone = L.closedToday.length;
+    state.planWins = L.rows.length;
+    return L;
+  }
+  const inPlan = (t) => state.planIdx[t.id] || null;
+  const planOpenTasks = () => state.planOrder.map(byId).filter(Boolean).filter((t) => !isClosed(t));
+
+  const WHY_TEXT = {
+    limit: 'poza trójką',
+    urzad: 'potrzebny urząd, a to nie dzień roboczy',
+    kontekst: 'żadne okno nie pasuje do kontekstu',
+    czas: 'nie mieści się w żadnym oknie',
+  };
+
+  function planTaskRow(x, win) {
+    const t = x.t;
+    const age = ageDays(t);
+    const di = dueInfo(t.due);
+    const bits = [`<span class="loz">${esc(minLabel(estOf(t)))}</span>`];
+    if (t.ctx) bits.push(`<span class="loz blue">${esc(ctxLabel(t.ctx))}</span>`);
+    if (di) bits.push(`<span class="loz ${di.cls}">${ic('cal')}${esc(di.text)}</span>`);
+    if (age >= 10) bits.push(`<span class="loz yellow" title="Ile dni sprawa wisi otwarta">wisi ${age} dni</span>`);
+    return `<li class="prow ${x.pinned ? 'pin' : ''}">
+      <div class="t"><button class="card-title" data-action="edit" data-id="${esc(t.id)}">${esc(t.title || '(bez nazwy)')}</button>
+        <div class="lozs" style="margin:3px 0 0">${bits.join('')}</div></div>
+      ${state.canWrite ? `<div class="pacts">
+        <button class="go" data-action="move" data-to="doing" data-id="${esc(t.id)}" title="Zacznij to teraz">${ic('play')}Start</button>
+        <button class="icon-btn" data-action="${x.pinned ? 'plan-unpin' : 'plan-pin'}" data-id="${esc(t.id)}" data-w="${esc(win.id)}" title="${x.pinned ? 'Odepnij z okna' : 'Przypnij do tego okna'}" aria-label="${x.pinned ? 'Odepnij' : 'Przypnij'}">${x.pinned ? ic('x') : ic('plus')}</button>
+      </div>` : ''}
+    </li>`;
+  }
+
+  function planWinCard(r) {
+    const w = r.w, kind = wkOf(w), busy = kind.k === 'busy';
+    const rest = Math.max(0, r.free - r.used);
+    const pct = r.free ? Math.min(100, Math.round((r.used / r.free) * 100)) : 0;
+    return `<article class="pwin k-${esc(kind.k)}">
+      <div class="pwin-head">
+        <span class="pwin-time">${esc(w.from)}–${esc(w.to)}</span>
+        <h3>${esc(w.label || kind.name)}</h3>
+        <span class="loz ${busy ? '' : 'blue'}">${esc(kind.name)}</span>
+        <span class="pwin-cap">${esc(minLabel(r.free))}${busy ? '' : ` · wolne ${minLabel(rest)}`}</span>
+        ${state.canWrite ? `<span class="pwin-acts"><button class="icon-btn" data-action="plan-win-edit" data-w="${esc(w.id)}" aria-label="Zmień okno" title="Zmień okno">${ic('edit')}</button><button class="icon-btn trash" data-action="plan-win-del" data-w="${esc(w.id)}" aria-label="Usuń okno" title="Usuń okno">${ic('trash')}</button></span>` : ''}
+      </div>
+      ${busy ? '' : `<div class="pbar" style="max-width:none"><i style="width:${pct}%"></i></div>`}
+      ${r.items.length
+        ? `<ul class="plist">${r.items.map((x) => planTaskRow(x, w)).join('')}</ul>`
+        : `<p class="pwin-empty">${busy ? esc(kind.note) : `Nic tu nie wchodzi — ${esc(kind.note)}.`}</p>`}
+    </article>`;
+  }
+
+  function renderPlan() {
+    const day = planDayIso(planState.day);
+    const d = new Date(day + 'T12:00:00');
+    const L = planState.day === 0 ? refreshPlanIndex() : planLayout(day);
+    const tp = throughput(14);
+    const head = `${DAYS[d.getDay()].replace(/^./, (c) => c.toUpperCase())}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
+    const over = L.planned > L.freeMin;
+    const bar = `<div class="pcap ${over ? 'over' : ''}">
+      <div class="pcap-n"><b>${esc(String(L.count))}</b> z ${PLAN_LIMIT} zadań</div>
+      <div class="pcap-n"><b>${esc(minLabel(L.planned))}</b> zaplanowane</div>
+      <div class="pcap-n"><b>${esc(minLabel(L.freeMin))}</b> wolnego czasu w oknach</div>
+      <div class="pcap-msg">${over
+        ? 'Zaplanowane przekracza wolny czas. Zdejmij zadanie albo dodaj okno.'
+        : L.count === 0 ? 'Nic nie wpadło do planu. Dodaj okno albo kontekst do zadań.'
+        : `Zostaje ${esc(minLabel(Math.max(0, L.freeMin - L.planned)))} luzu na to, co wyskoczy.`}</div>
+    </div>`;
+    const real = `<p class="preal">Realnie: w ostatnich 14 dniach skończyłeś <b>${tp.done}</b> ${plural(tp.done, 'zadanie', 'zadania', 'zadań')}, czyli <b>${tp.perDay.toFixed(1).replace('.', ',')}</b> dziennie. Trójka to sufit, nie cel.${L.officeDay ? '' : ' Dziś nie jest dzień roboczy — sprawy urzędowe odpadają same.'}</p>`;
+    const wins = L.rows.length
+      ? `<div class="pwins">${L.rows.map(planWinCard).join('')}</div>`
+      : `<div class="state"><h2>Dzień bez okien</h2><p>Okno to kawałek dnia: dojazd, wolna godzina w domu, spotkanie. Dopóki nie wiesz, ile masz minut i gdzie jesteś, plan jest życzeniem. Dodaj pierwsze okno albo wstaw typowy dzień.</p></div>`;
+    const doneLine = L.closedToday.length
+      ? `<p class="preal">Zrobione dziś (liczy się do trójki): ${L.closedToday.map((t) => `<b>${esc(t.title || '')}</b>`).join(', ')}.</p>`
+      : '';
+    const leftTop = L.left.slice(0, 6);
+    const leftover = leftTop.length
+      ? `<details class="pleft"><summary>Nie weszło do planu: ${L.left.length}</summary><ul>${leftTop.map((x) => `<li><button class="card-title" data-action="edit" data-id="${esc(x.t.id)}">${esc(x.t.title || '(bez nazwy)')}</button> <span class="why">${esc(WHY_TEXT[x.why] || '')}</span></li>`).join('')}</ul></details>`
+      : '';
+    $('plan').innerHTML = `
+      <div class="pbar-top">
+        <div class="seg two" role="tablist" aria-label="Dzień">
+          <button type="button" class="seg-b" role="tab" data-action="plan-day" data-d="0" aria-selected="${planState.day === 0}">Dziś</button>
+          <button type="button" class="seg-b" role="tab" data-action="plan-day" data-d="1" aria-selected="${planState.day === 1}">Jutro</button>
+        </div>
+        <span class="phead">${esc(head)}</span>
+        ${state.canWrite ? `<span class="pbar-acts">
+          <button class="btn primary" data-action="plan-win-new">${ic('plus')}Dodaj okno</button>
+          ${L.rows.length ? '' : '<button class="btn" data-action="plan-template">Wstaw typowy dzień</button>'}
+        </span>` : ''}
+      </div>
+      ${bar}
+      ${doneLine}
+      ${real}
+      ${wins}
+      ${leftover}`;
+  }
+
+  function planWinDialog(w) {
+    const v = w || { from: '', to: '', kind: 'free', label: '' };
+    return `<form class="dlg" data-form="plan-win">
+      <h2>${w ? 'Okno w planie' : 'Nowe okno w planie'}</h2>
+      <p class="hint">Okno to kawałek dnia z godzinami i miejscem. Zadanie wejdzie do niego tylko wtedy, gdy pasuje kontekstem i mieści się w minutach.</p>
+      <div class="row">
+        ${field('f-wfrom', 'Od', `<input type="time" id="f-wfrom" name="from" value="${esc(v.from)}" required>`)}
+        ${field('f-wto', 'Do', `<input type="time" id="f-wto" name="to" value="${esc(v.to)}" required>`)}
+      </div>
+      ${field('f-wkind', 'Rodzaj', `<select id="f-wkind" name="kind">${WIN_KINDS.map((k) => `<option value="${k.k}" ${v.kind === k.k ? 'selected' : ''}>${esc(k.name)} — ${esc(k.note)}</option>`).join('')}</select>`)}
+      ${field('f-wlabel', 'Nazwa (opcjonalnie)', `<input type="text" id="f-wlabel" name="label" value="${esc(v.label || '')}" maxlength="80" placeholder="np. Dojazd Grójec → Praga">`)}
+      <p class="err" id="f-err"></p>
+      <div class="dlg-actions">${w ? `<button type="button" class="btn danger left" data-action="plan-win-del" data-w="${esc(w.id)}">Usuń</button>` : ''}<button type="button" class="btn ghost" data-action="close">Anuluj</button><button class="btn primary">Zapisz</button></div>
+    </form>`;
+  }
+
+  async function planWinSave(form, wid) {
+    const data = new FormData(form);
+    const g = (k) => String(data.get(k) || '').trim();
+    const from = g('from'), to = g('to');
+    if (toMin(from) == null || toMin(to) == null) return formErr('Podaj godziny okna.');
+    if (toMin(to) <= toMin(from)) return formErr('Koniec okna musi być po jego początku.');
+    const day = planDayIso(planState.day);
+    const wins = planWins(day).slice();
+    const body = { id: wid || newWinId(), from, to, kind: WK[g('kind')] ? g('kind') : 'free', label: g('label'), taskIds: [] };
+    const i = wins.findIndex((x) => x.id === wid);
+    if (i >= 0) body.taskIds = wins[i].taskIds || [];
+    if (i >= 0) wins[i] = body; else wins.push(body);
+    closeDialog();
+    await savePlan(day, wins);
+    toast(i >= 0 ? 'Okno zapisane.' : `Okno ${from}–${to} dodane.`);
+  }
+
+  async function planWinDel(wid) {
+    const day = planDayIso(planState.day);
+    const wins = planWins(day).filter((w) => w.id !== wid);
+    if (state.dialog && state.dialog.kind === 'plan-win') closeDialog();
+    await savePlan(day, wins);
+    toast('Okno usunięte.');
+  }
+
+  async function planPin(id, wid, on) {
+    const day = planDayIso(planState.day);
+    const wins = planWins(day).map((w) => {
+      const ids = (w.taskIds || []).filter((x) => x !== id);
+      if (on && w.id === wid) ids.push(id);
+      return Object.assign({}, w, { taskIds: ids });
+    });
+    await savePlan(day, wins);
+  }
+
+  // Typowy dzień: trzy okna, z których Wojtek i tak korzysta. Lepszy start niż pusta strona.
+  async function planTemplate() {
+    const day = planDayIso(planState.day);
+    const work = dayIsWorkday(day);
+    const wins = work
+      ? [
+        { id: newWinId(), from: '08:00', to: '09:30', kind: 'home', label: 'Poranek w domu', taskIds: [] },
+        { id: newWinId(), from: '10:00', to: '12:00', kind: 'out', label: 'Wyjście: urzędy i sprawy', taskIds: [] },
+        { id: newWinId(), from: '19:00', to: '20:30', kind: 'home', label: 'Wieczór przy komputerze', taskIds: [] },
+      ]
+      : [
+        { id: newWinId(), from: '09:00', to: '10:30', kind: 'home', label: 'Poranek w domu', taskIds: [] },
+        { id: newWinId(), from: '18:00', to: '20:00', kind: 'home', label: 'Wieczór w domu', taskIds: [] },
+      ];
+    await savePlan(day, wins);
+    toast('Wstawiony typowy dzień. Zmień godziny pod siebie.');
   }
 
   // ---------- Zakupy: Keep-style shopping lists kept in a Google Sheet ----------
@@ -2947,6 +3619,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       <div class="row">
         ${field('f-area', 'Sfera', `<select id="f-area" name="area"><option value="">—</option>${AREAS.map((a) => `<option ${t.area === a ? 'selected' : ''}>${a}</option>`).join('')}</select>`)}
         ${field('f-group', 'Epik', `<select id="f-group" name="group"><option value="">—</option>${groupKeys().map((k) => `<option value="${esc(k)}" ${String(t.group || '') === k ? 'selected' : ''}>${esc(groupLabel(k))}</option>`).join('')}</select>`)}
+        ${field('f-ctx', 'Kontekst (gdzie i czym to zrobisz)', `<select id="f-ctx" name="ctx"><option value="">Wszędzie</option>${CTXS.map((c) => `<option value="${c.k}" ${t.ctx === c.k ? 'selected' : ''}>${c.emo} ${esc(c.name)} — ${esc(c.hint)}</option>`).join('')}</select>`)}
         ${field('f-est', 'Szacunek (min)', `<input type="number" id="f-est" name="estMin" min="2" max="480" value="${v('estMin') || 15}">`)}
         ${field('f-spent', 'Przepracowane (min)', `<input type="number" id="f-spent" name="spentMin" min="0" max="100000" value="${Number(t.spentMin) || 0}">`)}
       </div>
@@ -3151,7 +3824,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
   function taskDoc(f) {
     const stamp = nowIso();
     return Object.assign({
-      title: '', nextStep: '', doneWhen: '', quadrant: 'Q2', priority: 'P2', due: null, area: null, group: null, estMin: 15,
+      title: '', nextStep: '', doneWhen: '', quadrant: 'Q2', priority: 'P2', due: null, area: null, group: null, estMin: 15, ctx: null,
       needsOffice: false, notes: '', steps: [], status: 'backlog', blocked: false, blocker: null, unblockStep: null,
       proof: null, completedAt: null, source: 'Dodane w ADHD board', sourceUrl: null, mailThreadId: null,
       attachments: [], createdAt: stamp, updatedAt: stamp,
@@ -3651,6 +4324,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
         <div class="dlg-actions"><button type="button" class="btn ghost" data-action="close">Anuluj</button><button class="btn primary">${k ? 'Zapisz' : 'Dodaj epik'}</button></div>
       </form>`;
     }
+    if (d.kind === 'plan-win') return planWinDialog(d.win || null);
     if (d.kind === 'edit' || d.kind === 'new') {
       const isNew = d.kind === 'new';
       const t = isNew ? Object.assign({ quadrant: 'Q2', priority: 'P2', estMin: 15 }, d.prefill || {}) : byId(d.id);
@@ -3681,7 +4355,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       dd.atts = kind === 'edit' ? attsOf(byId(dd.id)).slice() : ((dd.prefill && dd.prefill.attachments) || []).slice();
     }
     $('dlg-root').innerHTML = `<div class="overlay" data-overlay="1" role="dialog" aria-modal="true">${dialogHtml(state.dialog)}</div>`;
-    const target = $('dlg-root').querySelector('#f-proof, #f-done, #f-blocker, #f-title, #f-ename, #f-pname, #f-creason, #f-lname, #keep-text, #f-surl, #f-bprov');
+    const target = $('dlg-root').querySelector('#f-proof, #f-done, #f-blocker, #f-title, #f-ename, #f-pname, #f-creason, #f-lname, #keep-text, #f-surl, #f-bprov, #f-wfrom');
     if (target) target.focus();
   }
   // re-render after closing so a status picker that opened a dialog shows the real status again
@@ -3860,6 +4534,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       if (ok && state.timer && state.timer.taskId === d.id) { state.timer = null; saveTimer(); }
       return;
     }
+    if (d.kind === 'plan-win') { planWinSave(form, d.win ? d.win.id : null); return; }
     if (d.kind === 'bill') {
       const provider = val('provider');
       if (provider.length < 2) return formErr('Wpisz nazwę usługi.');
@@ -3988,6 +4663,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
         due: /^\d{4}-\d{2}-\d{2}$/.test(val('due')) ? val('due') : null,
         area: AREAS.includes(val('area')) ? val('area') : null,
         group: val('group') ? Number(val('group')) : null,
+        ctx: CTX[val('ctx')] ? val('ctx') : null,
         estMin: Math.max(2, Math.min(480, Number(val('estMin')) || 15)),
         spentMin: Math.max(0, Math.min(100000, Math.round(Number(val('spentMin')) || 0))),
         needsOffice: data.get('needsOffice') === 'on',
@@ -4230,8 +4906,21 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       }
       case 'keep-file-del': dropKeepFile(Number(el.dataset.i)); break;
       case 'toggle-cancelled': state.showCancelled = !state.showCancelled; renderBoard(); break;
+      case 'rit-toggle': ritToggle(el.dataset.key); break;
+      case 'rit-bell': {
+        if (!('Notification' in window)) { toast('Ta przeglądarka nie obsługuje powiadomień.'); break; }
+        try { Notification.requestPermission().then((p) => { renderRituals(); ritTick(); toast(p === 'granted' ? 'Alarmy włączone na tym urządzeniu.' : 'Alarmy pozostają wyłączone.'); }); } catch (_) { toast('Nie udało się włączyć alarmów.'); }
+        break;
+      }
       case 'mailtab': mail.tab = el.dataset.t === 'bills' ? 'bills' : 'inbox'; try { localStorage.setItem('teraz.mailtab', mail.tab); } catch (_) {} renderMailView(); if (mail.tab === 'inbox') initMail(); break;
       case 'go-bills': state.view = 'mail'; mail.tab = 'bills'; try { localStorage.setItem('teraz.view', 'mail'); localStorage.setItem('teraz.mailtab', 'bills'); } catch (_) {} renderAll(); initMail(); break;
+      case 'plan-day': planState.day = el.dataset.d === '1' ? 1 : 0; renderPlan(); break;
+      case 'plan-win-new': if (state.canWrite) openDialog('plan-win'); break;
+      case 'plan-win-edit': if (state.canWrite) openDialog('plan-win', { win: planWins(planDayIso(planState.day)).find((w) => w.id === el.dataset.w) || null }); break;
+      case 'plan-win-del': if (state.canWrite) planWinDel(el.dataset.w); break;
+      case 'plan-pin': if (state.canWrite) planPin(id, el.dataset.w, true); break;
+      case 'plan-unpin': if (state.canWrite) planPin(id, el.dataset.w, false); break;
+      case 'plan-template': if (state.canWrite) planTemplate(); break;
       case 'bill-scan': initMail(); billScan(); break;
       case 'bill-scan-clear': bills.scan = null; renderBills(); break;
       case 'bill-save': billsAdd(); break;
@@ -4514,6 +5203,7 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
     const dayKey = isoDay(state.now), o = office(state.now).open;
     if (dayKey !== state.lastDayKey || o !== state.lastOffice) { state.lastDayKey = dayKey; state.lastOffice = o; renderAll(); }
     else renderClock();
+    ritTick();
   }, 30000);
   setInterval(() => { if (state.timer && state.timer.endAt) tickTimer(); }, 1000);
 
@@ -4561,6 +5251,14 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       renderAll();
     }, (err) => toast(errorText(err)));
 
+    // plan dnia: jeden dokument na dzień z oknami (godziny + miejsce)
+    db.collection('plan').orderBy('day', 'desc').limit(60).onSnapshot((snap) => {
+      state.plans = {};
+      snap.docs.forEach((d) => { state.plans[d.id] = Object.assign({ id: d.id }, d.data()); });
+      if (state.view === 'plan') renderPlan();
+      else if (state.view === 'board') { refreshPlanIndex(); renderRituals(); renderPlanBar(); renderNow(); renderBoard(); }
+    }, () => {});
+
     db.collection('bills').onSnapshot((snap) => {
       state.bills = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       updateBillBadge();
@@ -4572,6 +5270,14 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
       state.checkpoints = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       renderAll();
     }, (err) => toast(errorText(err)));
+
+    // rytuały dnia: jeden dokument na dzień, odhaczenia Wojtka (Trójka liczy się z zadań)
+    db.collection('rituals').orderBy('day', 'desc').limit(120).onSnapshot((snap) => {
+      state.rituals = {};
+      snap.docs.forEach((d) => { state.rituals[d.id] = Object.assign({ id: d.id }, d.data()); });
+      if (state.view === 'board') renderRituals();
+      ritTick();
+    }, () => {});
 
     db.doc('meta/groups').onSnapshot((snap) => {
       const data = snap.exists ? snap.data() : null;
@@ -4598,11 +5304,11 @@ button.sbox:hover { border-color: var(--green); color: var(--green); }
 
 <script>
 // bez service workera aplikacja nie otworzy się bez zasięgu
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+try { if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
+    try { navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {}); } catch (e) {}
   });
-}
+} } catch (e) {} // w ramce z sandboxem navigator.serviceWorker rzuca wyjątkiem — to nie jest błąd
 </script>
 </body>
 </html>

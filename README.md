@@ -32,3 +32,25 @@ dyktowanie, „Rozbij z AI”, załączniki, Poczta oraz Zakupy (łącznik Arkus
 1. Włącz GitHub Pages jak wyżej.
 2. Wklej adres `https://teddybadboy.github.io/adhd-board/` na `pwabuilder.com`.
 3. Manifest i Service Worker powinny być na zielono → **Package for stores → Android**.
+
+## Zapis danych poza claude.ai (od 26.11.2026)
+
+Ta wersja tablicy nie ma bazy z claude.ai, więc zapisuje dane u siebie — dwiema
+drogami naraz, bo jedna bywa odcięta:
+
+1. `localStorage` — czytany synchronicznie przy starcie, klucz `adhd-board.db.v1`,
+2. IndexedDB (`adhd-board` / `kv` / `db`) — zapas; ratuje sytuacje, w których
+   `localStorage` rzuca wyjątkiem, i odtwarza dane po starcie.
+
+Gdy obie drogi są zamknięte, strona **nie udaje, że zapisuje**. Pokazuje czerwony
+pasek: „Ta strona jest osadzona w ramce, która blokuje zapis. Zadania znikną po
+odświeżeniu." plus przycisk „Otwórz w osobnej karcie" i „Zapisz kopię do pliku".
+
+Tak dzieje się przy osadzeniu w **Google Sites**: Sites wrzuca stronę do ramki
+z sandboxem na `googleusercontent.com`, bez `allow-same-origin`. Taka ramka dostaje
+pusty origin i przeglądarka odcina jej cały magazyn. Nie da się tego obejść kodem
+strony — trzeba ją podlinkować zamiast osadzać, albo trzymać dane na serwerze.
+
+Niezależnie od tego w prawym dolnym rogu są dwa przyciski: **⤓ Kopia** (eksport
+wszystkiego do JSON) i **⤒ Wczytaj** (import z pliku). W konsoli `adhdStorage()`
+pokazuje, które drogi zapisu działają.
